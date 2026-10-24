@@ -1,0 +1,5146 @@
+-- RELWX HUB UI  |  My Anime Mine
+
+if _G.RelwxMineCleanup then
+    pcall(_G.RelwxMineCleanup)
+    task.wait(0.2)
+end
+
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local RunService = game:GetService("RunService")
+local StatsService = game:GetService("Stats")
+local SoundService = game:GetService("SoundService")
+local Debris = game:GetService("Debris")
+local GuiService = game:GetService("GuiService")
+
+local UI_FONT = "Montserrat"
+local function E(name)
+    local ok, v = pcall(function()
+        return Enum.Font[name]
+    end)
+    return ok and v or Enum.Font.Gotham
+end
+local FontFamilies = {
+    Montserrat = { R = E("Montserrat"), M = E("MontserratMedium"), B = E("MontserratBold") },
+    BuilderSans = { R = E("BuilderSans"), M = E("BuilderSansMedium"), B = E("BuilderSansBold") },
+    Gotham = { R = Enum.Font.Gotham, M = Enum.Font.GothamMedium, B = Enum.Font.GothamBold },
+}
+local FNT = FontFamilies[UI_FONT] or FontFamilies.Gotham
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+local SOUND_ON = "rbxasset://sounds/switch.wav"
+local SOUND_OFF = "rbxasset://sounds/button.wav"
+local SOUND_FALLBACK = "rbxasset://sounds/electronicpingshort.wav"
+
+--==================================================
+-- CONFIG  (Auto Save / Auto Load)
+--==================================================
+
+local CONFIG_FILE = "RELWX_HUB_Config.json"
+
+local Defaults = {
+    UIAccentColor = "#A78BFA",
+    UIBackgroundColor = "#08080F",
+    UIButtonColor = "#1E1B33",
+    FloatingButtonColor = "#0C0B16",
+    FloatingBorderColor = "#C4B5FD",
+    FloatingGlowColor = "#8B5CF6",
+    MasterAFK = false,
+    AutoClickNodes = false,
+    ClickDelay = 0.08,
+    AutoSweepLoot = false,
+    AutoTakeAndSell = false,
+    SellInterval = 15,
+    AutoEquipBest = false,
+    AutoUpgradeMiners = false,
+    StrictBestMinerFirst = false,
+    SelectedMinerStats = "Damage|Speed|Mining Speed",
+    AutoBuyPickaxes = false,
+    SelectedPickaxes = "Sapphire|Sapphire Quartz",
+    AutoBuySkills = false,
+    AutoCoreUpgrades = false,
+    AutoClaimRewards = false,
+    AutoUnlockZones = false,
+    AntiAFK = true,
+    LowCpuMode = false,
+    Language = "th",
+    SoundEnabled = true,
+    StatsVisible = true,
+    UIScalePercent = 100,
+    LastTab = "Home",
+    WindowVisible = true,
+    Maximized = false,
+    CollapsedSections = "",
+    WindowX = 0.5,
+    WindowY = 0.5,
+    FloatX = 0.04,
+    FloatY = 0.25,
+    StatsX = 0.5,
+    StatsY = 0.045,
+}
+
+local Config = {}
+for k, v in pairs(Defaults) do
+    Config[k] = v
+end
+
+local LoadedFromFile = false
+
+local function LoadConfig()
+    if not (isfile and readfile) then
+        return
+    end
+    local ok, exists = pcall(isfile, CONFIG_FILE)
+    if not (ok and exists) then
+        return
+    end
+    pcall(function()
+        local data = HttpService:JSONDecode(readfile(CONFIG_FILE))
+        if type(data) == "table" then
+            for k, v in pairs(Defaults) do
+                if type(data[k]) == type(v) then
+                    Config[k] = data[k]
+                end
+            end
+            LoadedFromFile = true
+        end
+    end)
+end
+
+LoadConfig()
+for _, k in ipairs({ "WindowX", "WindowY" }) do
+    Config[k] = math.clamp(Config[k], 0.05, 0.95)
+end
+for _, k in ipairs({ "FloatX", "FloatY", "StatsX", "StatsY" }) do
+    Config[k] = math.clamp(Config[k], 0.02, 0.98)
+end
+Config.UIScalePercent = math.clamp(Config.UIScalePercent, 60, 120)
+
+local SaveHooks = {}
+local SaveToken = 0
+
+local function Fire(state)
+    for _, h in ipairs(SaveHooks) do
+        pcall(h, state)
+    end
+end
+
+local function WriteNow()
+    if not writefile then
+        return "unsupported"
+    end
+    local ok = pcall(function()
+        writefile(CONFIG_FILE, HttpService:JSONEncode(Config))
+    end)
+    return ok and "saved" or "failed"
+end
+
+local function SaveConfig(instant)
+    SaveToken = SaveToken + 1
+    local token = SaveToken
+    Fire("saving")
+    local function commit()
+        if token ~= SaveToken then
+            return
+        end
+        local result = WriteNow()
+        Fire(result)
+        if result == "saved" then
+            task.delay(1.8, function()
+                if token == SaveToken then
+                    Fire("idle")
+                end
+            end)
+        end
+    end
+    if instant then
+        commit()
+    else
+        task.delay(0.3, commit)
+    end
+end
+
+local function SetConfig(key, value)
+    if Config[key] == value then
+        return
+    end
+    Config[key] = value
+    SaveConfig()
+end
+
+
+local function RGB(r, g, b)
+    return Color3.fromRGB(r, g, b)
+end
+
+local function Lum(c)
+    return 0.299 * c.R + 0.587 * c.G + 0.114 * c.B
+end
+
+local function Hex(key, fallback)
+    local ok, c = pcall(Color3.fromHex, Config[key])
+    return ok and c or fallback
+end
+
+local Theme = {}
+
+local function ComputeTheme()
+    local bg = Hex("UIBackgroundColor", RGB(8, 8, 8))
+    local dark = Lum(bg) < 0.5
+    local to = dark and Color3.new(1, 1, 1) or Color3.new(0, 0, 0)
+    Theme.Bg = bg
+    Theme.Surface = bg:Lerp(to, 0.05)
+    Theme.Surface2 = bg:Lerp(to, 0.095)
+    Theme.Stroke = bg:Lerp(to, 0.17)
+    Theme.Text = dark and RGB(244, 244, 244) or RGB(20, 20, 20)
+    Theme.Sub = Theme.Text:Lerp(bg, 0.16)
+    Theme.Muted = Theme.Text:Lerp(bg, 0.38)
+    Theme.Accent = Hex("UIAccentColor", RGB(190, 190, 190))
+    Theme.OnAccent = Lum(Theme.Accent) > 0.55 and RGB(15, 15, 15) or RGB(255, 255, 255)
+    Theme.Button = Hex("UIButtonColor", RGB(36, 36, 36))
+    local h, s, v = Theme.Accent:ToHSV()
+    if s < 0.12 then
+        Theme.Accent2 = Theme.Accent:Lerp(Color3.fromRGB(96, 104, 128), 0.6)
+    else
+        Theme.Accent2 = Color3.fromHSV((h + 0.12) % 1, s, math.max(v, 0.6))
+    end
+end
+
+ComputeTheme()
+
+local ThemeHooks = {}
+
+local function OnTheme(fn)
+    ThemeHooks[#ThemeHooks + 1] = fn
+    pcall(fn)
+end
+
+local function Bind(obj, prop, key)
+    OnTheme(function()
+        obj[prop] = Theme[key]
+    end)
+end
+
+local function ApplyTheme()
+    ComputeTheme()
+    for _, fn in ipairs(ThemeHooks) do
+        pcall(fn)
+    end
+end
+
+--==================================================
+-- HELPERS
+--==================================================
+
+local Orders = setmetatable({}, { __mode = "k" })
+local function Next(parent)
+    Orders[parent] = (Orders[parent] or 0) + 1
+    return Orders[parent]
+end
+
+local function New(className, props, parent)
+    local obj = Instance.new(className)
+    for k, v in pairs(props or {}) do
+        obj[k] = v
+    end
+    obj.Parent = parent
+    return obj
+end
+
+local function Corner(parent, radius)
+    return New("UICorner", { CornerRadius = UDim.new(0, radius) }, parent)
+end
+
+local function Stroke(parent, color, thickness, transparency)
+    return New("UIStroke", {
+        Color = color,
+        Thickness = thickness or 1,
+        Transparency = transparency or 0,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+    }, parent)
+end
+
+local function Pad(parent, l, r, t, b)
+    return New("UIPadding", {
+        PaddingLeft = UDim.new(0, l or 0),
+        PaddingRight = UDim.new(0, r or 0),
+        PaddingTop = UDim.new(0, t or 0),
+        PaddingBottom = UDim.new(0, b or 0),
+    }, parent)
+end
+
+local function List(parent, padding)
+    return New("UIListLayout", {
+        Padding = UDim.new(0, padding or 0),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+    }, parent)
+end
+
+local function Text(parent, text, size, font, color, align)
+    local l = New("TextLabel", {
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Text = text or "",
+        TextSize = size or 13,
+        Font = font or FNT.R,
+        TextXAlignment = align or Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Center,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+    }, parent)
+    if type(color) == "string" then
+        Bind(l, "TextColor3", color)
+    elseif color then
+        l.TextColor3 = color
+    end
+    return l
+end
+
+local function Tween(obj, t, props, style, dir)
+    local tw = TweenService:Create(
+        obj,
+        TweenInfo.new(t, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out),
+        props
+    )
+    tw:Play()
+    return tw
+end
+
+local function Apply(obj, animate, props)
+    if animate then
+        Tween(obj, 0.16, props)
+    else
+        for k, v in pairs(props) do
+            obj[k] = v
+        end
+    end
+end
+
+local function Panel(parent, size, class)
+    local f = New(class or "Frame", { BorderSizePixel = 0, LayoutOrder = Next(parent) }, parent)
+    if class == "TextButton" then
+        f.Text = ""
+        f.AutoButtonColor = false
+    end
+    if size then
+        f.Size = size
+    end
+    Bind(f, "BackgroundColor3", "Surface")
+    f.BackgroundTransparency = 0.05
+    Corner(f, 16)
+    Bind(Stroke(f, Theme.Stroke, 1, 0.4), "Color", "Stroke")
+    New("UIGradient", {
+        Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(0.76, 0.76, 0.76)),
+        Rotation = 90,
+    }, f)
+    local hi = New("Frame", {
+        Size = UDim2.new(1, -28, 0, 1),
+        Position = UDim2.fromOffset(14, 0),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BackgroundTransparency = 0.9,
+        BorderSizePixel = 0,
+    }, f)
+    New("UIGradient", {
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.5, 0),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+    }, hi)
+    return f
+end
+
+local function HoverRow(btn)
+    local st = btn:FindFirstChildOfClass("UIStroke")
+    local sheen, edge
+    if not btn:FindFirstChildOfClass("UIListLayout") and not btn:FindFirstChildOfClass("UIGridLayout") then
+        btn.ClipsDescendants = true
+        sheen = New("Frame", {
+            Name = "Sheen",
+            Size = UDim2.new(0, 70, 1, 0),
+            Position = UDim2.new(-0.3, 0, 0, 0),
+            BackgroundColor3 = Color3.new(1, 1, 1),
+            BorderSizePixel = 0,
+            ZIndex = 4,
+        }, btn)
+        New("UIGradient", {
+            Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 1),
+                NumberSequenceKeypoint.new(0.5, 0.9),
+                NumberSequenceKeypoint.new(1, 1),
+            }),
+        }, sheen)
+        edge = New("Frame", {
+            Size = UDim2.new(0, 3, 0, 0),
+            AnchorPoint = Vector2.new(0, 0.5),
+            Position = UDim2.new(0, 0, 0.5, 0),
+            BorderSizePixel = 0,
+            BackgroundTransparency = 1,
+            ZIndex = 4,
+        }, btn)
+        Bind(edge, "BackgroundColor3", "Accent")
+    end
+    btn.MouseEnter:Connect(function()
+        if sheen then
+            sheen.Position = UDim2.new(-0.3, 0, 0, 0)
+            Tween(sheen, 0.6, { Position = UDim2.new(1.1, 0, 0, 0) }, Enum.EasingStyle.Quad)
+            Tween(edge, 0.2, { Size = UDim2.new(0, 3, 0.6, 0), BackgroundTransparency = 0.05 })
+        end
+        Tween(btn, 0.12, { BackgroundColor3 = Theme.Surface2 })
+        if st then
+            Tween(st, 0.12, { Transparency = 0.05 })
+        end
+    end)
+    local sc
+    if btn:IsA("GuiButton") then
+        sc = New("UIScale", { Scale = 1 }, btn)
+        btn.MouseButton1Down:Connect(function()
+            Tween(sc, 0.08, { Scale = 0.982 })
+            pcall(function()
+                if btn:FindFirstChildOfClass("UIListLayout") then
+                    return
+                end
+                local m = UIS:GetMouseLocation()
+                local ap, asz = btn.AbsolutePosition, btn.AbsoluteSize
+                if asz.X < 1 or asz.Y < 1 then
+                    return
+                end
+                btn.ClipsDescendants = true
+                local r = New("Frame", {
+                    Size = UDim2.fromOffset(0, 0),
+                    AnchorPoint = Vector2.new(0.5, 0.5),
+                    Position = UDim2.fromScale((m.X - ap.X) / asz.X, (m.Y - ap.Y) / asz.Y),
+                    BackgroundColor3 = Theme.Accent,
+                    BackgroundTransparency = 0.7,
+                    BorderSizePixel = 0,
+                    ZIndex = 5,
+                }, btn)
+                Corner(r, 200)
+                Tween(r, 0.55, { Size = UDim2.fromOffset(340, 340), BackgroundTransparency = 1 }, Enum.EasingStyle.Quad)
+                task.delay(0.6, function()
+                    r:Destroy()
+                end)
+            end)
+        end)
+        btn.MouseButton1Up:Connect(function()
+            Tween(sc, 0.18, { Scale = 1 }, Enum.EasingStyle.Back)
+        end)
+    end
+    btn.MouseLeave:Connect(function()
+        if edge then
+            Tween(edge, 0.2, { Size = UDim2.new(0, 3, 0, 0), BackgroundTransparency = 1 })
+        end
+        Tween(btn, 0.12, { BackgroundColor3 = Theme.Surface })
+        if st then
+            Tween(st, 0.12, { Transparency = 0.4 })
+        end
+        if sc then
+            Tween(sc, 0.12, { Scale = 1 })
+        end
+    end)
+end
+
+local function AccentGrad(parent, rotation)
+    local g = New("UIGradient", { Rotation = rotation or 0 }, parent)
+    OnTheme(function()
+        g.Color = ColorSequence.new(Theme.Accent, Theme.Accent2)
+    end)
+    return g
+end
+
+local function Tint(parent)
+    local t = New("Frame", {
+        Size = UDim2.fromScale(1, 1),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.new(1, 1, 1),
+    }, parent)
+    Corner(t, 12)
+    local g = AccentGrad(t, 25)
+    g.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.8),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    return t
+end
+
+local function IsPointer(input)
+    return input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch
+end
+
+local function IsMove(input)
+    return input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch
+end
+
+local function Icon(parent, kind, x, y)
+    local box = New("Frame", {
+        Size = UDim2.fromOffset(18, 18),
+        Position = UDim2.fromOffset(x, y),
+        BackgroundTransparency = 1,
+    }, parent)
+    local parts = {}
+    local function rect(px, py, w, h, r, rot)
+        local f = New("Frame", {
+            Size = UDim2.fromOffset(w, h),
+            Position = UDim2.fromOffset(px, py),
+            BorderSizePixel = 0,
+            Rotation = rot or 0,
+        }, box)
+        Corner(f, r or 1)
+        parts[#parts + 1] = { f = f }
+        return f
+    end
+    if kind == "grid" then
+        rect(1, 1, 7, 7, 2)
+        rect(10, 1, 7, 7, 2)
+        rect(1, 10, 7, 7, 2)
+        rect(10, 10, 7, 7, 2)
+    elseif kind == "sliders" then
+        rect(1, 2, 16, 2, 1)
+        rect(1, 8, 11, 2, 1)
+        rect(1, 14, 14, 2, 1)
+    elseif kind == "close" then
+        rect(1, 8, 16, 2, 1, 45)
+        rect(1, 8, 16, 2, 1, -45)
+    elseif kind == "max" then
+        local r = New("Frame", {
+            Size = UDim2.fromOffset(12, 12),
+            Position = UDim2.fromOffset(3, 3),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+        }, box)
+        Corner(r, 3)
+        parts[#parts + 1] = { stroke = Stroke(r, Color3.new(1, 1, 1), 2, 0) }
+    else -- ring (settings)
+        local r = New("Frame", {
+            Size = UDim2.fromOffset(16, 16),
+            Position = UDim2.fromOffset(1, 1),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+        }, box)
+        Corner(r, 8)
+        parts[#parts + 1] = { stroke = Stroke(r, Color3.new(1, 1, 1), 2, 0) }
+        rect(7, 7, 4, 4, 2)
+    end
+    return function(c)
+        for _, p in ipairs(parts) do
+            if p.stroke then
+                p.stroke.Color = c
+            else
+                p.f.BackgroundColor3 = c
+            end
+        end
+    end
+end
+
+--==================================================
+-- ROOT GUI
+--==================================================
+
+pcall(function()
+    for _, v in ipairs(PlayerGui:GetChildren()) do
+        if v.Name == "RELWX_UI" or v.Name == "RELWX_Floating" or v.Name == "RELWX_Stats" then
+            v:Destroy()
+        end
+    end
+end)
+
+local Screen = New("ScreenGui", {
+    Name = "RELWX_UI",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    DisplayOrder = 999998,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+}, PlayerGui)
+
+local Conns = {}
+local function Track(c)
+    Conns[#Conns + 1] = c
+    return c
+end
+Screen.Destroying:Connect(function()
+    for _, c in ipairs(Conns) do
+        pcall(function()
+            c:Disconnect()
+        end)
+    end
+end)
+
+local BW, BH = 740, 580
+local SW = 172
+
+local function ViewSize()
+    local s = Screen.AbsoluteSize
+    if s.X > 0 and s.Y > 0 then
+        return s
+    end
+    return workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
+end
+
+local function TargetScale()
+    local v = ViewSize()
+    local fit = math.min(v.X * 0.97 / BW, v.Y * 0.95 / BH)
+    local base = math.min(fit * (Config.Maximized and 1 or 0.92), Config.Maximized and 1.4 or 1.1)
+    local s = base * (Config.UIScalePercent / 100)
+    return math.clamp(s, 0.3, math.max(0.3, fit))
+end
+
+local Main = New("CanvasGroup", {
+    Name = "Main",
+    Size = UDim2.fromOffset(BW, BH),
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(Config.WindowX, Config.WindowY),
+    BorderSizePixel = 0,
+    BackgroundTransparency = 0.04,
+    GroupTransparency = 1,
+    Active = true,
+    Visible = false,
+}, Screen)
+Bind(Main, "BackgroundColor3", "Bg")
+Corner(Main, 26)
+Main.BackgroundTransparency = 1
+Main.Active = false
+do
+    local d = New("CanvasGroup", {
+        Name = "Deco",
+        Size = UDim2.new(1, -100, 1, -84),
+        Position = UDim2.fromOffset(88, 72),
+        BorderSizePixel = 0,
+        BackgroundTransparency = 0.03,
+    }, Main)
+    Bind(d, "BackgroundColor3", "Bg")
+    Corner(d, 22)
+    local g = New("Frame", {
+        Size = UDim2.new(1, 0, 0, 110),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BorderSizePixel = 0,
+    }, d)
+    local gg = AccentGrad(g, 90)
+    gg.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.58),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    local v = New("Frame", {
+        Size = UDim2.new(1, 0, 0, 90),
+        AnchorPoint = Vector2.new(0, 1),
+        Position = UDim2.fromScale(0, 1),
+        BackgroundColor3 = Color3.new(0, 0, 0),
+        BorderSizePixel = 0,
+    }, d)
+    New("UIGradient", {
+        Rotation = 90,
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(1, 0.55),
+        }),
+    }, v)
+
+    local function Glow(key, sz, x0, y0, x1, y1, dur)
+        local c = New("Frame", {
+            Size = UDim2.fromOffset(sz, sz),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            Position = UDim2.fromScale(x0, y0),
+            BackgroundTransparency = 1,
+        }, d)
+        for i = 0, 7 do
+            local k = sz * (1 - i * 0.11)
+            local l = New("Frame", {
+                Size = UDim2.fromOffset(k, k),
+                AnchorPoint = Vector2.new(0.5, 0.5),
+                Position = UDim2.fromScale(0.5, 0.5),
+                BackgroundTransparency = 0.965,
+                BorderSizePixel = 0,
+            }, c)
+            Corner(l, k)
+            Bind(l, "BackgroundColor3", key)
+        end
+        TweenService:Create(
+            c,
+            TweenInfo.new(dur, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+            { Position = UDim2.fromScale(x1, y1) }
+        ):Play()
+    end
+    Glow("Accent", 440, 0.08, 0.1, 0.35, 0.3, 10)
+    Glow("Accent2", 480, 0.95, 0.95, 0.68, 0.72, 12)
+    Glow("Accent", 320, 0.92, 0.12, 0.74, 0.4, 9)
+
+    local comets = {}
+    for i = 1, 2 do
+        local c = New("Frame", {
+            Size = UDim2.fromOffset(7, 7),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            BorderSizePixel = 0,
+            BackgroundColor3 = Color3.new(1, 1, 1),
+            ZIndex = 8,
+        }, d)
+        Corner(c, 4)
+        local cs = Stroke(c, Theme.Accent, 5, 0.55)
+        Bind(cs, "Color", (i == 1) and "Accent" or "Accent2")
+        comets[i] = c
+    end
+    local cacc = 0
+    Track(RunService.RenderStepped:Connect(function()
+        if not Main.Visible then
+            return
+        end
+        local sz = d.AbsoluteSize
+        local wx, wy = math.max(sz.X, 1), math.max(sz.Y, 1)
+        local total = 2 * (wx + wy)
+        for i, c in ipairs(comets) do
+            local dist = (os.clock() * 260 + (i - 1) * total / 2) % total
+            if dist < wx then
+                c.Position = UDim2.new(dist / wx, 0, 0, 3)
+            elseif dist < wx + wy then
+                c.Position = UDim2.new(1, -3, (dist - wx) / wy, 0)
+            elseif dist < 2 * wx + wy then
+                c.Position = UDim2.new(1 - (dist - wx - wy) / wx, 0, 1, -3)
+            else
+                c.Position = UDim2.new(0, 3, 1 - (dist - 2 * wx - wy) / wy, 0)
+            end
+        end
+    end))
+
+    local wm = New("TextLabel", {
+        Size = UDim2.fromOffset(420, 110),
+        AnchorPoint = Vector2.new(1, 1),
+        Position = UDim2.new(1, -14, 1, -4),
+        BackgroundTransparency = 1,
+        Text = "RELWX",
+        Font = FNT.B,
+        TextSize = 96,
+        TextXAlignment = Enum.TextXAlignment.Right,
+        TextTransparency = 0.86,
+    }, d)
+    Bind(wm, "TextColor3", "Accent")
+
+    local rf = New("Frame", {
+        Size = UDim2.new(0.35, 0, 2, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.15, 0.5),
+        Rotation = 18,
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BorderSizePixel = 0,
+    }, d)
+    New("UIGradient", {
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.5, 0.9),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+    }, rf)
+    TweenService:Create(
+        rf,
+        TweenInfo.new(11, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+        { Position = UDim2.fromScale(0.9, 0.5) }
+    ):Play()
+
+    local inner = New("Frame", {
+        Size = UDim2.new(1, -10, 1, -10),
+        Position = UDim2.fromOffset(5, 5),
+        BackgroundTransparency = 1,
+    }, d)
+    Corner(inner, 18)
+    Stroke(inner, Color3.new(1, 1, 1), 1, 0.92)
+end
+
+local function Aurora(key, rot)
+    local f = New("Frame", { Size = UDim2.fromScale(1, 1), BorderSizePixel = 0 }, Main:FindFirstChild("Deco"))
+    Bind(f, "BackgroundColor3", key)
+    Corner(f, 18)
+    New("UIGradient", {
+        Rotation = rot,
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.82),
+            NumberSequenceKeypoint.new(0.55, 1),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+    }, f)
+end
+Aurora("Accent", 35)
+Aurora("Accent2", 215)
+
+do
+    local function Orb(key, sz, x0, y0, x1, y1, dur, tr)
+        local o = New("Frame", {
+            Size = UDim2.fromOffset(sz, sz),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            Position = UDim2.fromScale(x0, y0),
+            BorderSizePixel = 0,
+            BackgroundTransparency = tr,
+        }, Main:FindFirstChild("Deco"))
+        Corner(o, sz // 2)
+        Bind(o, "BackgroundColor3", key)
+        New("UIGradient", {
+            Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 0),
+                NumberSequenceKeypoint.new(1, 1),
+            }),
+            Rotation = 90,
+        }, o)
+        TweenService:Create(
+            o,
+            TweenInfo.new(dur, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+            { Position = UDim2.fromScale(x1, y1) }
+        ):Play()
+    end
+    Orb("Accent", 320, 0.15, 0.2, 0.45, 0.45, 9, 0.82)
+    Orb("Accent2", 360, 0.9, 0.85, 0.55, 0.55, 11, 0.84)
+    Orb("Accent", 220, 0.8, 0.1, 0.65, 0.35, 8, 0.88)
+
+    task.spawn(function()
+        while Screen.Parent do
+            task.wait(1.2 + math.random() * 2.5)
+            if Main.Visible and Main.GroupTransparency < 0.5 then
+                pcall(function()
+                    local st = New("Frame", {
+                        Size = UDim2.fromOffset(110, 2),
+                        AnchorPoint = Vector2.new(0.5, 0.5),
+                        Position = UDim2.fromScale(math.random() * 0.6, -0.05),
+                        Rotation = 28,
+                        BorderSizePixel = 0,
+                        BackgroundColor3 = Theme.Accent,
+                        ZIndex = 2,
+                    }, Main:FindFirstChild("Deco"))
+                    New("UIGradient", {
+                        Transparency = NumberSequence.new({
+                            NumberSequenceKeypoint.new(0, 1),
+                            NumberSequenceKeypoint.new(1, 0.1),
+                        }),
+                    }, st)
+                    local x1 = st.Position.X.Scale + 0.45
+                    Tween(st, 0.9, { Position = UDim2.fromScale(x1, 1.1), BackgroundTransparency = 0.6 }, Enum.EasingStyle.Quad)
+                    task.delay(1, function()
+                        st:Destroy()
+                    end)
+                end)
+            end
+        end
+    end)
+
+    local acc = 0
+    Track(RunService.RenderStepped:Connect(function(dt)
+        acc = acc + dt
+        if acc < 0.04 or not Main.Visible then
+            return
+        end
+        acc = 0
+        local m = UIS:GetMouseLocation()
+        local ap, asz = Main.AbsolutePosition, Main.AbsoluteSize
+        if m.X < ap.X or m.Y < ap.Y or m.X > ap.X + asz.X or m.Y > ap.Y + asz.Y then
+            return
+        end
+        if UIS:GetLastInputType() ~= Enum.UserInputType.MouseMovement then
+            return
+        end
+        local d = New("Frame", {
+            Size = UDim2.fromOffset(5, 5),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            Position = UDim2.fromOffset(m.X + math.random(-4, 4), m.Y + math.random(-4, 4)),
+            BorderSizePixel = 0,
+            BackgroundColor3 = (math.random() < 0.5) and Theme.Accent or Theme.Accent2,
+            BackgroundTransparency = 0.3,
+            ZIndex = 40,
+        }, Screen)
+        Corner(d, 3)
+        Tween(d, 0.5, {
+            Size = UDim2.fromOffset(1, 1),
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(m.X + math.random(-14, 14), m.Y + math.random(6, 22)),
+        }, Enum.EasingStyle.Quad)
+        task.delay(0.55, function()
+            d:Destroy()
+        end)
+    end))
+
+    for i = 1, 11 do
+        local v = New("Frame", {
+            Size = UDim2.new(0, 1, 1, 0),
+            Position = UDim2.fromScale(i / 12, 0),
+            BackgroundColor3 = Color3.new(1, 1, 1),
+            BackgroundTransparency = 0.975,
+            BorderSizePixel = 0,
+        }, Main:FindFirstChild("Deco"))
+        New("UIGradient", {
+            Rotation = 90,
+            Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 1),
+                NumberSequenceKeypoint.new(0.5, 0),
+                NumberSequenceKeypoint.new(1, 1),
+            }),
+        }, v)
+    end
+    for i = 1, 7 do
+        local h = New("Frame", {
+            Size = UDim2.new(1, 0, 0, 1),
+            Position = UDim2.fromScale(0, i / 8),
+            BackgroundColor3 = Color3.new(1, 1, 1),
+            BackgroundTransparency = 0.975,
+            BorderSizePixel = 0,
+        }, Main:FindFirstChild("Deco"))
+        New("UIGradient", {
+            Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 1),
+                NumberSequenceKeypoint.new(0.5, 0),
+                NumberSequenceKeypoint.new(1, 1),
+            }),
+        }, h)
+    end
+
+    local scan = New("Frame", {
+        Size = UDim2.new(1, 0, 0, 70),
+        Position = UDim2.new(0, 0, 0, -80),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BackgroundTransparency = 0,
+        BorderSizePixel = 0,
+    }, Main:FindFirstChild("Deco"))
+    New("UIGradient", {
+        Rotation = 90,
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.5, 0.94),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+    }, scan)
+    TweenService:Create(
+        scan,
+        TweenInfo.new(3.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, false, 5),
+        { Position = UDim2.new(0, 0, 1, 10) }
+    ):Play()
+end
+
+local Dust = New("Frame", {
+    Size = UDim2.fromScale(1, 1),
+    BackgroundTransparency = 1,
+    ClipsDescendants = true,
+}, Main:FindFirstChild("Deco"))
+for i = 1, 16 do
+    local sz = math.random(2, 4)
+    local x = math.random()
+    local p = New("Frame", {
+        Size = UDim2.fromOffset(sz, sz),
+        Position = UDim2.fromScale(x, 1.05),
+        BorderSizePixel = 0,
+        BackgroundTransparency = 0.55 + math.random() * 0.3,
+    }, Dust)
+    Corner(p, 2)
+    Bind(p, "BackgroundColor3", (i % 2 == 0) and "Accent" or "Accent2")
+    local dur = 9 + math.random() * 9
+    TweenService:Create(
+        p,
+        TweenInfo.new(dur, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1, false, math.random() * 5),
+        { Position = UDim2.fromScale(math.clamp(x + (math.random() - 0.5) * 0.15, 0, 1), -0.05) }
+    ):Play()
+end
+
+local MainStroke = Stroke(Main, Color3.new(1, 1, 1), 1.5, 1)
+local MainGrad = New("UIGradient", { Rotation = 0 }, MainStroke)
+OnTheme(function()
+    local h, sat = Theme.Accent:ToHSV()
+    sat = math.max(sat, 0.6)
+    MainGrad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Theme.Accent),
+        ColorSequenceKeypoint.new(0.25, Color3.fromHSV((h + 0.1) % 1, sat, 1)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromHSV((h + 0.25) % 1, sat, 1)),
+        ColorSequenceKeypoint.new(0.75, Color3.fromHSV((h + 0.1) % 1, sat, 1)),
+        ColorSequenceKeypoint.new(1, Theme.Accent),
+    })
+end)
+TweenService:Create(
+    MainGrad,
+    TweenInfo.new(6, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1),
+    { Rotation = 360 }
+):Play()
+local MainScale = New("UIScale", { Scale = TargetScale() }, Main)
+do
+    local gs = Stroke(Main:FindFirstChild("Deco"), Theme.Accent, 14, 0.8)
+    Bind(gs, "Color", "Accent")
+    TweenService:Create(
+        gs,
+        TweenInfo.new(2.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+        { Transparency = 0.96 }
+    ):Play()
+end
+
+local Shadow = New("Frame", {
+    Size = UDim2.fromOffset(BW, BH),
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    BackgroundTransparency = 1,
+    ZIndex = 0,
+    Visible = false,
+}, Screen)
+local ShadowScale = New("UIScale", { Scale = 1 }, Shadow)
+local ShadowLayers = {}
+for i, g in ipairs({ 8, 20, 36, 56 }) do
+    local l = New("Frame", {
+        Size = UDim2.new(1, g * 2, 1, g * 2),
+        Position = UDim2.fromOffset(-g, -g + 10),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.new(0, 0, 0),
+    }, Shadow)
+    Corner(l, 18 + g)
+    ShadowLayers[i] = { f = l, base = 0.82 + i * 0.03 }
+end
+local ShadowGlow = New("Frame", {
+    Size = UDim2.new(1, 40, 1, 40),
+    Position = UDim2.fromOffset(-20, -20),
+    BorderSizePixel = 0,
+}, Shadow)
+Corner(ShadowGlow, 38)
+Bind(ShadowGlow, "BackgroundColor3", "Accent")
+ShadowLayers[#ShadowLayers + 1] = { f = ShadowGlow, base = 0.95 }
+
+Track(RunService.RenderStepped:Connect(function()
+    local vis = Main.Visible
+    Shadow.Visible = false
+    if not vis then
+        return
+    end
+    Shadow.Position = Main.Position
+    Shadow.Size = Main.Size
+    ShadowScale.Scale = MainScale.Scale
+    local a = Main.GroupTransparency
+    for _, l in ipairs(ShadowLayers) do
+        l.f.BackgroundTransparency = 1 - (1 - l.base) * (1 - a)
+    end
+end))
+
+local TopGlow = New("Frame", {
+    Size = UDim2.new(0.8, 0, 0, 1),
+    Position = UDim2.fromScale(0.1, 0),
+    BorderSizePixel = 0,
+}, Main)
+Bind(TopGlow, "BackgroundColor3", "Accent")
+TopGlow.Visible = false
+New("UIGradient", {
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(0.5, 0.15),
+        NumberSequenceKeypoint.new(1, 1),
+    }),
+}, TopGlow)
+
+local Opening = false
+
+local function ApplyScale(animate)
+    if Opening then
+        return
+    end
+    if animate and Main.Visible then
+        Tween(MainScale, 0.25, { Scale = TargetScale() }, Enum.EasingStyle.Quint)
+    else
+        MainScale.Scale = TargetScale()
+    end
+end
+
+Track(Screen:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+    ApplyScale(false)
+end))
+
+local function PlayToggleSound(on, big)
+    if not Config.SoundEnabled then
+        return
+    end
+    pcall(function()
+        local function play(id, vol, speed)
+            local s = Instance.new("Sound")
+            s.SoundId = id
+            s.Volume = vol
+            s.PlaybackSpeed = speed
+            s.Parent = SoundService
+            s:Play()
+            Debris:AddItem(s, 2.5)
+            return s
+        end
+        local speed = (on and 1.18 or 0.86) * (big and 0.85 or 1)
+        local s = play(on and SOUND_ON or SOUND_OFF, big and 0.7 or 0.6, speed)
+        task.delay(0.35, function()
+            if s.Parent and s.TimeLength == 0 then
+                play(SOUND_FALLBACK, 0.55, on and 1.35 or 0.85)
+            end
+        end)
+    end)
+end
+
+local function FloatCenter()
+    local s = Screen.AbsoluteSize
+    return s.X * Config.FloatX, s.Y * Config.FloatY
+end
+
+local function FxRing(cx, cy, size, thick, dur, color)
+    local r = New("Frame", {
+        Size = UDim2.fromOffset(6, 6),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromOffset(cx, cy),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ZIndex = 60,
+    }, Screen)
+    Corner(r, 9999)
+    local st = Stroke(r, color or Theme.Accent, thick, 0.05)
+    Tween(r, dur, { Size = UDim2.fromOffset(size, size) }, Enum.EasingStyle.Quint)
+    Tween(st, dur, { Transparency = 1, Thickness = 0.5 }, Enum.EasingStyle.Quad)
+    Debris:AddItem(r, dur + 0.15)
+end
+
+local function FxSparks(cx, cy, spread, count, dist)
+    for i = 1, count do
+        local ang = math.random() * math.pi * 2
+        local d = dist * (0.45 + math.random() * 0.8)
+        local sz = math.random(3, 6)
+        local px = cx + (math.random() - 0.5) * spread
+        local col = (i % 3 == 0) and Color3.new(1, 1, 1) or ((i % 2 == 0) and Theme.Accent or Theme.Accent2)
+        local p = New("Frame", {
+            Size = UDim2.fromOffset(sz, sz),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            Position = UDim2.fromOffset(px, cy),
+            BorderSizePixel = 0,
+            BackgroundColor3 = col,
+            ZIndex = 61,
+        }, Screen)
+        Corner(p, 3)
+        local dur = 0.45 + math.random() * 0.45
+        Tween(p, dur, {
+            Position = UDim2.fromOffset(px + math.cos(ang) * d, cy + math.sin(ang) * d * 0.85),
+            BackgroundTransparency = 1,
+            Size = UDim2.fromOffset(1, 1),
+        }, Enum.EasingStyle.Quint)
+        Debris:AddItem(p, dur + 0.15)
+    end
+end
+
+local function FxBeam(cx, cy, w)
+    local b = New("Frame", {
+        Size = UDim2.fromOffset(w, 4),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromOffset(cx, cy),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        ZIndex = 62,
+    }, Screen)
+    New("UICorner", { CornerRadius = UDim.new(0.5, 0) }, b)
+    New("UIGradient", {
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Theme.Accent2),
+            ColorSequenceKeypoint.new(0.5, Color3.new(1, 1, 1)),
+            ColorSequenceKeypoint.new(1, Theme.Accent),
+        }),
+    }, b)
+    Stroke(b, Theme.Accent, 5, 0.65)
+    Debris:AddItem(b, 2)
+    return b
+end
+
+local AnimToken = 0
+
+local function PlayOpen()
+    AnimToken = AnimToken + 1
+    local token = AnimToken
+    Opening = true
+    local t = TargetScale()
+    local fx, fy = FloatCenter()
+
+    MainStroke.Thickness = 1.5
+    Main.Size = UDim2.fromOffset(BW, BH)
+    Main.Position = UDim2.fromOffset(fx, fy)
+    Main.GroupTransparency = 1
+    MainScale.Scale = t * 0.12
+    Main.Visible = true
+
+    PlayToggleSound(true, true)
+    FxRing(fx, fy, 120, 3, 0.55)
+    FxSparks(fx, fy, 6, 12, 60)
+    pcall(function()
+        local fl = New("Frame", {
+            Size = UDim2.fromScale(1, 1),
+            BackgroundColor3 = Theme.Accent,
+            BackgroundTransparency = 0.9,
+            BorderSizePixel = 0,
+            ZIndex = 58,
+        }, Screen)
+        Tween(fl, 0.6, { BackgroundTransparency = 1 })
+        task.delay(0.65, function()
+            fl:Destroy()
+        end)
+        for i = 1, 3 do
+            task.delay(i * 0.1, function()
+                FxRing(fx, fy, 80 + i * 70, 2, 0.6, (i % 2 == 0) and Theme.Accent2 or Theme.Accent)
+            end)
+        end
+    end)
+
+    Tween(Main, 0.3, { GroupTransparency = 0 })
+    Tween(Main, 0.6, { Position = UDim2.fromScale(Config.WindowX, Config.WindowY) }, Enum.EasingStyle.Quint)
+    Tween(MainScale, 0.65, { Scale = t }, Enum.EasingStyle.Back)
+
+    task.delay(0.5, function()
+        if token ~= AnimToken then
+            return
+        end
+        local ap, asz = Main.AbsolutePosition, Main.AbsoluteSize
+        FxRing(ap.X + asz.X / 2, ap.Y + asz.Y / 2, math.max(asz.X, asz.Y) * 1.05, 2, 0.7, Theme.Accent2)
+        FxRing(ap.X + asz.X / 2, ap.Y + asz.Y / 2, math.max(asz.X, asz.Y) * 1.35, 1, 0.9, Theme.Accent)
+        FxSparks(ap.X + asz.X / 2, ap.Y + asz.Y / 2, math.max(asz.X, asz.Y) * 0.5, 22, 120)
+    end)
+    task.delay(0.68, function()
+        if token == AnimToken then
+            Opening = false
+        end
+    end)
+end
+
+local function PlayClose()
+    AnimToken = AnimToken + 1
+    local token = AnimToken
+    Opening = true
+    PlayToggleSound(false, true)
+
+    local s0 = MainScale.Scale
+    local function alive()
+        return token == AnimToken
+    end
+
+    Tween(MainScale, 0.14, { Scale = s0 * 1.03 }, Enum.EasingStyle.Sine)
+    Tween(MainStroke, 0.3, { Thickness = 3.5 }, Enum.EasingStyle.Sine)
+
+    task.delay(0.14, function()
+        if not alive() then
+            return
+        end
+        Tween(Main, 0.36, { GroupTransparency = 1 }, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+        Tween(MainScale, 0.36, { Scale = s0 * 0.97 }, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+    end)
+
+    task.delay(0.5, function()
+        if not alive() then
+            return
+        end
+        local ap, asz = Main.AbsolutePosition, Main.AbsoluteSize
+        local cx, cy = ap.X + asz.X / 2, ap.Y + asz.Y / 2
+        local w = math.max(asz.X, 40)
+
+        Main.Visible = false
+        Main.Size = UDim2.fromOffset(BW, BH)
+        Main.Position = UDim2.fromScale(Config.WindowX, Config.WindowY)
+        MainScale.Scale = s0
+        MainStroke.Thickness = 1.5
+
+        local beam = FxBeam(cx, cy, w)
+        FxRing(cx, cy, w * 0.75, 3, 0.6)
+        FxRing(cx, cy, w * 0.45, 2, 0.5, Theme.Accent2)
+        FxSparks(cx, cy, w, 28, 150 * math.max(s0, 0.6))
+        FxSparks(cx, cy, w * 0.6, 24, 230 * math.max(s0, 0.6))
+        FxRing(cx, cy, w * 1.1, 1, 0.8, Theme.Accent)
+        pcall(function()
+            local fl = New("Frame", {
+                Size = UDim2.fromScale(1, 1),
+                BackgroundColor3 = Theme.Accent,
+                BackgroundTransparency = 0.86,
+                BorderSizePixel = 0,
+                ZIndex = 58,
+            }, Screen)
+            Tween(fl, 0.55, { BackgroundTransparency = 1 })
+            task.delay(0.6, function()
+                fl:Destroy()
+            end)
+            for i = 1, 4 do
+                task.delay(i * 0.08, function()
+                    FxRing(cx, cy, w * (0.4 + i * 0.35), 2, 0.7, (i % 2 == 0) and Theme.Accent2 or Theme.Accent)
+                end)
+            end
+        end)
+        Tween(beam, 0.26, { Size = UDim2.fromOffset(18, 18) }, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+
+        task.delay(0.28, function()
+            local fx, fy = FloatCenter()
+            Tween(beam, 0.36, {
+                Position = UDim2.fromOffset(fx, fy),
+                Size = UDim2.fromOffset(8, 8),
+            }, Enum.EasingStyle.Cubic, Enum.EasingDirection.InOut)
+            task.delay(0.36, function()
+                beam:Destroy()
+                FxRing(fx, fy, 100, 3, 0.55)
+                FxSparks(fx, fy, 6, 12, 50)
+                if alive() then
+                    Opening = false
+                end
+            end)
+        end)
+    end)
+end
+
+local function SetWindow(visible)
+    SetConfig("WindowVisible", visible)
+    if visible then
+        PlayOpen()
+    else
+        PlayClose()
+    end
+end
+
+local function SavePosition(target, kx, ky)
+    local s = Screen.AbsoluteSize
+    if s.X <= 0 or s.Y <= 0 then
+        return
+    end
+    local c = target.AbsolutePosition + target.AbsoluteSize / 2
+    local fx = math.clamp(c.X / s.X, 0.02, 0.98)
+    local fy = math.clamp(c.Y / s.Y, 0.02, 0.98)
+    target.Position = UDim2.fromScale(fx, fy)
+    SetConfig(kx, math.floor(fx * 10000) / 10000)
+    SetConfig(ky, math.floor(fy * 10000) / 10000)
+end
+
+local function MakeDraggable(handle, target, kx, ky, onClick)
+    local dragging, dragInput, startPos, startCenter, moved = false, nil, nil, nil, false
+
+    handle.InputBegan:Connect(function(input)
+        if IsPointer(input) then
+            dragging = true
+            moved = false
+            dragInput = input
+            startPos = input.Position
+            startCenter = target.AbsolutePosition + target.AbsoluteSize / 2
+        end
+    end)
+
+    Track(UIS.InputChanged:Connect(function(input)
+        if not dragging or not IsMove(input) then
+            return
+        end
+        if input.UserInputType == Enum.UserInputType.Touch and input ~= dragInput then
+            return
+        end
+        local d = input.Position - startPos
+        if d.Magnitude > 8 then
+            moved = true
+        end
+        if moved then
+            local s = Screen.AbsoluteSize
+            target.Position = UDim2.fromOffset(
+                math.clamp(startCenter.X + d.X, 0, s.X),
+                math.clamp(startCenter.Y + d.Y, 0, s.Y)
+            )
+        end
+    end))
+
+    Track(UIS.InputEnded:Connect(function(input)
+        if dragging and IsPointer(input) then
+            if input.UserInputType == Enum.UserInputType.Touch and input ~= dragInput then
+                return
+            end
+            dragging = false
+            if moved then
+                SavePosition(target, kx, ky)
+            elseif onClick then
+                onClick()
+            end
+        end
+    end))
+end
+
+local ActiveToast
+local function Toast(text, on)
+    if ActiveToast then
+        ActiveToast:Destroy()
+        ActiveToast = nil
+    end
+    local t = New("TextLabel", {
+        Size = UDim2.fromOffset(0, 38),
+        AutomaticSize = Enum.AutomaticSize.X,
+        AnchorPoint = Vector2.new(0.5, 1),
+        Position = UDim2.new(0.5, 0, 1, 48),
+        BorderSizePixel = 0,
+        Text = text,
+        TextSize = 12,
+        Font = FNT.M,
+        BackgroundColor3 = Theme.Surface2,
+        TextColor3 = Theme.Text,
+        ZIndex = 300,
+    }, Screen)
+    Corner(t, 19)
+    Stroke(t, Theme.Accent, 1, 0.55)
+    Pad(t, 38, 18, 0, 0)
+    local dot = New("Frame", {
+        Size = UDim2.fromOffset(8, 8),
+        Position = UDim2.new(0, -24, 0.5, -4),
+        BorderSizePixel = 0,
+        BackgroundColor3 = (on == true) and RGB(70, 200, 120) or (on == false and Theme.Muted or Theme.Accent),
+    }, t)
+    Corner(dot, 4)
+    ActiveToast = t
+    local bar = New("Frame", {
+        Size = UDim2.new(1, -24, 0, 2),
+        Position = UDim2.new(0, 12, 1, -3),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Theme.Accent,
+        BackgroundTransparency = 0.2,
+    }, t)
+    Corner(bar, 1)
+    Tween(bar, 1.7, { Size = UDim2.new(0, 0, 0, 2) }, Enum.EasingStyle.Linear)
+    Tween(t, 0.35, { Position = UDim2.new(0.5, 0, 1, -26) }, Enum.EasingStyle.Back)
+    task.delay(1.7, function()
+        if ActiveToast == t then
+            Tween(t, 0.25, { Position = UDim2.new(0.5, 0, 1, 48) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+            task.delay(0.3, function()
+                t:Destroy()
+                if ActiveToast == t then
+                    ActiveToast = nil
+                end
+            end)
+        end
+    end)
+end
+
+--==================================================
+-- SAVE STATUS PILL
+--==================================================
+
+local SaveStates = {
+    idle = { "Auto Save", nil },
+    saving = { "กำลังบันทึก...", RGB(240, 190, 60) },
+    saved = { "บันทึกแล้ว", RGB(70, 200, 120) },
+    failed = { "บันทึกไม่ได้", RGB(235, 75, 90) },
+    unsupported = { "ไม่รองรับไฟล์", RGB(235, 75, 90) },
+}
+
+local function StatusPill(parent, width)
+    local pill = New("Frame", { Size = UDim2.fromOffset(width or 108, 26), BorderSizePixel = 0 }, parent)
+    Bind(pill, "BackgroundColor3", "Surface2")
+    Corner(pill, 13)
+    Bind(Stroke(pill, Theme.Stroke, 1, 0.3), "Color", "Stroke")
+
+    local dot = New("Frame", {
+        Size = UDim2.fromOffset(8, 8),
+        Position = UDim2.new(0, 11, 0.5, -4),
+        BorderSizePixel = 0,
+    }, pill)
+    Corner(dot, 4)
+
+    local label = Text(pill, "", 10, FNT.M, "Sub")
+    label.Position = UDim2.fromOffset(26, 0)
+    label.Size = UDim2.new(1, -30, 1, 0)
+
+    local current = "idle"
+    local function render()
+        local s = SaveStates[current]
+        label.Text = s[1]
+        dot.BackgroundColor3 = s[2] or Theme.Accent
+    end
+    OnTheme(render)
+
+    SaveHooks[#SaveHooks + 1] = function(state)
+        current = state
+        render()
+    end
+    return pill
+end
+
+
+local StatsGui = New("ScreenGui", {
+    Name = "RELWX_Stats",
+    ResetOnSpawn = false,
+    DisplayOrder = 999999,
+    IgnoreGuiInset = true,
+    Enabled = Config.StatsVisible,
+}, PlayerGui)
+
+local StatsBox = New("Frame", {
+    Size = UDim2.fromOffset(152, 30),
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(Config.StatsX, Config.StatsY),
+    BorderSizePixel = 0,
+    BackgroundTransparency = 0.1,
+    Active = true,
+}, StatsGui)
+Bind(StatsBox, "BackgroundColor3", "Surface")
+Corner(StatsBox, 15)
+Bind(Stroke(StatsBox, Theme.Stroke, 1, 0.2), "Color", "Stroke")
+
+local FpsLabel = Text(StatsBox, "", 11, FNT.M, "Sub", Enum.TextXAlignment.Center)
+FpsLabel.RichText = true
+FpsLabel.Size = UDim2.new(0.5, -1, 1, 0)
+
+local MsLabel = Text(StatsBox, "", 11, FNT.M, "Sub", Enum.TextXAlignment.Center)
+MsLabel.RichText = true
+MsLabel.Position = UDim2.new(0.5, 1, 0, 0)
+MsLabel.Size = UDim2.new(0.5, -1, 1, 0)
+
+local StatsDivider = New("Frame", {
+    Size = UDim2.fromOffset(1, 14),
+    Position = UDim2.new(0.5, 0, 0.5, -7),
+    BorderSizePixel = 0,
+}, StatsBox)
+Bind(StatsDivider, "BackgroundColor3", "Stroke")
+
+MakeDraggable(StatsBox, StatsBox, "StatsX", "StatsY")
+
+local Metrics = { fps = 60, ping = 0 }
+
+do
+    local frames, acc = 0, 0
+    Track(RunService.RenderStepped:Connect(function(dt)
+        frames = frames + 1
+        acc = acc + dt
+        if acc >= 0.5 then
+            Metrics.fps = math.floor(frames / acc + 0.5)
+            frames, acc = 0, 0
+        end
+    end))
+end
+
+local function GetPing()
+    local ok, v = pcall(function()
+        return StatsService.Network.ServerStatsItem["Data Ping"]:GetValue()
+    end)
+    return (ok and type(v) == "number") and math.floor(v + 0.5) or 0
+end
+
+local function Level(value, good, mid, higherIsBetter)
+    local g, m, b = RGB(70, 200, 120), RGB(240, 190, 60), RGB(235, 75, 90)
+    if higherIsBetter then
+        return value >= good and g or (value >= mid and m or b)
+    end
+    return value <= good and g or (value <= mid and m or b)
+end
+
+local function RefreshStats()
+    Metrics.ping = GetPing()
+    local fc = Level(Metrics.fps, 50, 30, true)
+    local mc = Level(Metrics.ping, 80, 160, false)
+    local muted = "#" .. Theme.Muted:ToHex()
+    FpsLabel.Text = string.format(
+        '<font color="#%s"><b>%d</b></font> <font color="%s">FPS</font>',
+        fc:ToHex(), Metrics.fps, muted
+    )
+    MsLabel.Text = string.format(
+        '<font color="#%s"><b>%d</b></font> <font color="%s">MS</font>',
+        mc:ToHex(), Metrics.ping, muted
+    )
+end
+
+--==================================================
+-- TOP BAR
+--==================================================
+
+local Top = New("Frame", {
+    Size = UDim2.new(1, -56, 0, 56),
+    Position = UDim2.fromOffset(28, 8),
+    BorderSizePixel = 0,
+}, Main)
+Bind(Top, "BackgroundColor3", "Bg")
+Top.BackgroundTransparency = 0.03
+do
+    local tint = New("Frame", { Size = UDim2.fromScale(1, 1), BorderSizePixel = 0 }, Top)
+    Corner(tint, 28)
+    Bind(tint, "BackgroundColor3", "Accent")
+    New("UIGradient", {
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.86),
+            NumberSequenceKeypoint.new(0.5, 0.95),
+            NumberSequenceKeypoint.new(1, 0.86),
+        }),
+    }, tint)
+end
+Corner(Top, 28)
+do
+    local ts = Stroke(Top, Color3.new(1, 1, 1), 1.5, 0.2)
+    local tg = New("UIGradient", { Rotation = 0 }, ts)
+    OnTheme(function()
+        tg.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Theme.Stroke),
+            ColorSequenceKeypoint.new(0.5, Theme.Accent),
+            ColorSequenceKeypoint.new(1, Theme.Stroke),
+        })
+    end)
+    TweenService:Create(
+        tg,
+        TweenInfo.new(5, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1),
+        { Rotation = 360 }
+    ):Play()
+end
+
+local TopLine = New("Frame", {
+    Size = UDim2.new(1, -24, 0, 1),
+    Position = UDim2.new(0, 12, 1, -1),
+    BorderSizePixel = 0,
+    BackgroundColor3 = Color3.new(1, 1, 1),
+}, Top)
+do
+    local g = AccentGrad(TopLine, 0)
+    g.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.95),
+        NumberSequenceKeypoint.new(0.5, 0.15),
+        NumberSequenceKeypoint.new(1, 0.95),
+    })
+end
+
+Top.ClipsDescendants = true
+local Shine = New("Frame", {
+    Size = UDim2.new(0, 120, 1, 0),
+    Position = UDim2.new(-0.3, 0, 0, 0),
+    BackgroundColor3 = Color3.new(1, 1, 1),
+    BorderSizePixel = 0,
+}, Top)
+New("UIGradient", {
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(0.5, 0.93),
+        NumberSequenceKeypoint.new(1, 1),
+    }),
+}, Shine)
+TweenService:Create(
+    Shine,
+    TweenInfo.new(1.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, false, 4),
+    { Position = UDim2.new(1.1, 0, 0, 0) }
+):Play()
+
+local Badge = New("Frame", {
+    Size = UDim2.fromOffset(34, 34),
+    Position = UDim2.fromOffset(16, 13),
+    BorderSizePixel = 0,
+}, Top)
+Badge.BackgroundColor3 = Color3.new(1, 1, 1)
+AccentGrad(Badge, 45)
+Corner(Badge, 10)
+Bind(Stroke(Badge, Theme.Accent, 1.5, 0.65), "Color", "Accent")
+local BadgeText = Text(Badge, "RX", 13, FNT.B, nil, Enum.TextXAlignment.Center)
+BadgeText.Size = UDim2.fromScale(1, 1)
+Bind(BadgeText, "TextColor3", "OnAccent")
+
+do
+    Badge.ClipsDescendants = true
+    local gl = New("Frame", {
+        Size = UDim2.fromOffset(12, 60),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new(0, -20, 0.5, 0),
+        Rotation = 25,
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BackgroundTransparency = 0.55,
+        BorderSizePixel = 0,
+        ZIndex = 5,
+    }, Badge)
+    TweenService:Create(
+        gl,
+        TweenInfo.new(0.9, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, false, 2.5),
+        { Position = UDim2.new(1, 20, 0.5, 0) }
+    ):Play()
+end
+
+local Brand = Text(Top, "", 15, FNT.B, "Text")
+Brand.RichText = true
+OnTheme(function()
+    Brand.Text = 'RELWX <font color="#' .. Theme.Accent:ToHex() .. '">HUB</font>'
+end)
+Brand.Position = UDim2.fromOffset(60, 10)
+Brand.Size = UDim2.new(1, -270, 0, 22)
+
+local BrandSub = Text(Top, tostring(game.Name or ""), 10, FNT.R, "Muted")
+BrandSub.Position = UDim2.fromOffset(60, 31)
+BrandSub.Size = UDim2.new(1, -270, 0, 16)
+
+local function WindowButton(kind, xOffset, danger)
+    local b = New("TextButton", {
+        Size = UDim2.fromOffset(32, 32),
+        Position = UDim2.new(1, xOffset, 0.5, -16),
+        BorderSizePixel = 0,
+        Text = "",
+        AutoButtonColor = false,
+    }, Top)
+    Corner(b, 10)
+    Bind(b, "BackgroundColor3", "Surface2")
+    local paint = Icon(b, kind, 7, 7)
+    OnTheme(function()
+        paint(Theme.Sub)
+    end)
+    b.MouseEnter:Connect(function()
+        Tween(b, 0.12, { BackgroundColor3 = danger and RGB(200, 70, 80) or Theme.Button })
+        paint(danger and RGB(255, 255, 255) or Theme.Text)
+    end)
+    b.MouseLeave:Connect(function()
+        Tween(b, 0.12, { BackgroundColor3 = Theme.Surface2 })
+        paint(Theme.Sub)
+    end)
+    return b
+end
+
+local MaxBtn = WindowButton("max", -86, false)
+local CloseBtn = WindowButton("close", -48, true)
+CloseBtn.MouseButton1Click:Connect(function()
+    SetWindow(false)
+end)
+
+do
+    local pill = New("Frame", {
+        Size = UDim2.fromOffset(112, 26),
+        Position = UDim2.new(1, -208, 0.5, -13),
+        BorderSizePixel = 0,
+    }, Top)
+    Bind(pill, "BackgroundColor3", "Surface2")
+    Corner(pill, 13)
+    local dot = New("Frame", {
+        Size = UDim2.fromOffset(6, 6),
+        Position = UDim2.fromOffset(11, 10),
+        BorderSizePixel = 0,
+    }, pill)
+    Corner(dot, 3)
+    Bind(dot, "BackgroundColor3", "Accent")
+    TweenService:Create(
+        dot,
+        TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+        { BackgroundTransparency = 0.8 }
+    ):Play()
+    local clk = Text(pill, "", 11, FNT.M, "Sub", Enum.TextXAlignment.Left)
+    clk.Position = UDim2.fromOffset(24, 0)
+    clk.Size = UDim2.new(1, -28, 1, 0)
+    local frames, fps = 0, 60
+    Track(RunService.Heartbeat:Connect(function()
+        frames = frames + 1
+    end))
+    task.spawn(function()
+        while Screen.Parent do
+            fps = frames * 2
+            frames = 0
+            clk.Text = os.date("%H:%M:%S") .. "  " .. tostring(fps)
+            task.wait(0.5)
+        end
+    end)
+end
+
+MakeDraggable(Top, Main, "WindowX", "WindowY")
+
+MaxBtn.MouseButton1Click:Connect(function()
+    SetConfig("Maximized", not Config.Maximized)
+    SetConfig("WindowX", 0.5)
+    SetConfig("WindowY", 0.5)
+    Tween(Main, 0.3, { Position = UDim2.fromScale(0.5, 0.5) }, Enum.EasingStyle.Quint)
+    ApplyScale(true)
+end)
+
+
+local Rail = New("Frame", {
+    Size = UDim2.new(0, 64, 1, -84),
+    Position = UDim2.fromOffset(12, 72),
+    BorderSizePixel = 0,
+    ClipsDescendants = true,
+    ZIndex = 10,
+}, Main)
+Bind(Rail, "BackgroundColor3", "Bg")
+Rail.BackgroundTransparency = 0.03
+do
+    local tint = New("Frame", { Size = UDim2.fromScale(1, 1), BorderSizePixel = 0 }, Rail)
+    Corner(tint, 26)
+    Bind(tint, "BackgroundColor3", "Accent")
+    New("UIGradient", {
+        Rotation = 90,
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.86),
+            NumberSequenceKeypoint.new(1, 0.95),
+        }),
+    }, tint)
+end
+Corner(Rail, 26)
+Bind(Stroke(Rail, Theme.Stroke, 1, 0.4), "Color", "Stroke")
+
+local CatList = New("ScrollingFrame", {
+    Size = UDim2.new(1, -16, 1, -80),
+    Position = UDim2.fromOffset(8, 10),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    ScrollBarThickness = 2,
+    ScrollBarImageTransparency = 0.3,
+    CanvasSize = UDim2.new(),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    ScrollingDirection = Enum.ScrollingDirection.Y,
+    ElasticBehavior = Enum.ElasticBehavior.Never,
+}, Rail)
+Bind(CatList, "ScrollBarImageColor3", "Accent")
+List(CatList, 4)
+Pad(CatList, 0, 4, 1, 1)
+
+local UserBox = New("Frame", {
+    Size = UDim2.new(1, -16, 0, 52),
+    Position = UDim2.new(0, 8, 1, -60),
+    BorderSizePixel = 0,
+}, Rail)
+Bind(UserBox, "BackgroundColor3", "Surface2")
+Corner(UserBox, 12)
+
+local Avatar = New("ImageLabel", {
+    Size = UDim2.fromOffset(34, 34),
+    Position = UDim2.new(0, 9, 0.5, -17),
+    BorderSizePixel = 0,
+    Image = "rbxthumb://type=AvatarHeadShot&id=" .. LocalPlayer.UserId .. "&w=60&h=60",
+}, UserBox)
+Corner(Avatar, 17)
+Bind(Avatar, "BackgroundColor3", "Button")
+Bind(Stroke(Avatar, Theme.Accent, 1.5, 0.2), "Color", "Accent")
+Bind(Stroke(UserBox, Theme.Stroke, 1, 0.5), "Color", "Stroke")
+local Online = New("Frame", {
+    Size = UDim2.fromOffset(10, 10),
+    Position = UDim2.new(0, 36, 0.5, 7),
+    BorderSizePixel = 0,
+    BackgroundColor3 = RGB(70, 200, 120),
+    ZIndex = 3,
+}, UserBox)
+Corner(Online, 5)
+Bind(Stroke(Online, Theme.Surface2, 2, 0), "Color", "Surface2")
+
+local UName = Text(UserBox, LocalPlayer.DisplayName, 12, FNT.B, "Text")
+UName.Position = UDim2.fromOffset(52, 9)
+UName.Size = UDim2.new(1, -58, 0, 18)
+local UTag = Text(UserBox, "@" .. LocalPlayer.Name, 10, FNT.R, "Muted")
+UTag.Position = UDim2.fromOffset(52, 27)
+UTag.Size = UDim2.new(1, -58, 0, 14)
+
+local Pages = {}
+local TabList = {}
+
+local function CatGroup(name)
+    local l = Text(CatList, name, 10, FNT.B, "Muted")
+    l.Size = UDim2.new(1, 0, 0, 26)
+    l.LayoutOrder = Next(CatList)
+    Pad(l, 10, 0, 6, 0)
+    return l
+end
+
+local CurrentTab = nil
+local function SelectTab(id)
+    if not Pages[id] then
+        id = "Home"
+    end
+    SetConfig("LastTab", id)
+    local changed = id ~= CurrentTab
+    CurrentTab = id
+    for pid, page in pairs(Pages) do
+        page.Visible = (pid == id)
+    end
+    if changed then
+        local p = Pages[id]
+        p.Position = UDim2.fromOffset(0, 16)
+        Tween(p, 0.32, { Position = UDim2.fromOffset(0, 0) }, Enum.EasingStyle.Quint)
+        pcall(function()
+            local n = 0
+            for _, child in ipairs(p:GetChildren()) do
+                local sh = child:FindFirstChild("Sheen")
+                if sh then
+                    n = n + 1
+                    task.delay(n * 0.06, function()
+                        sh.Position = UDim2.new(-0.3, 0, 0, 0)
+                        Tween(sh, 0.7, { Position = UDim2.new(1.1, 0, 0, 0) }, Enum.EasingStyle.Quad)
+                    end)
+                end
+            end
+        end)
+        pcall(function()
+            local sw = New("Frame", {
+                Size = UDim2.new(0, 0, 0, 2),
+                BackgroundColor3 = Theme.Accent,
+                BorderSizePixel = 0,
+                ZIndex = 20,
+            }, p.Parent)
+            Tween(sw, 0.5, { Size = UDim2.new(1, 0, 0, 2), BackgroundTransparency = 1 }, Enum.EasingStyle.Quint)
+            task.delay(0.55, function()
+                sw:Destroy()
+            end)
+        end)
+    end
+    for _, t in ipairs(TabList) do
+        t.active = (t.id == id)
+        t.paint()
+    end
+end
+
+local function Category(name, id, iconKind)
+    local b = New("TextButton", {
+        Size = UDim2.new(1, 0, 0, 42),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Text = "",
+        AutoButtonColor = false,
+        LayoutOrder = Next(CatList),
+    }, CatList)
+    Corner(b, 16)
+    local bst = Stroke(b, Theme.Accent, 1, 1)
+
+    local ind = New("Frame", {
+        Size = UDim2.fromOffset(3, 8),
+        AnchorPoint = Vector2.new(0, 0.5),
+        Position = UDim2.new(0, 4, 0.5, 0),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+    }, b)
+    Corner(ind, 2)
+
+    local setIcon = Icon(b, iconKind, 16, 12)
+
+    local lbl = Text(b, name, 13, FNT.M)
+    lbl.Position = UDim2.fromOffset(44, 0)
+    lbl.Size = UDim2.new(1, -48, 1, 0)
+    lbl.TextColor3 = Theme.Sub
+
+    local tab = { id = id, active = false, hover = false }
+    function tab.paint()
+        Tween(b, 0.15, {
+            BackgroundColor3 = tab.active and Theme.Accent or Theme.Button,
+            BackgroundTransparency = tab.active and 0 or (tab.hover and 0.5 or 1),
+        })
+        Tween(bst, 0.15, { Color = Theme.Accent, Transparency = tab.active and 0.55 or 1 })
+        Tween(lbl, 0.15, { TextColor3 = tab.active and Theme.OnAccent or Theme.Sub })
+        Tween(ind, 0.15, {
+            BackgroundColor3 = Theme.Accent,
+            BackgroundTransparency = 1,
+            Size = tab.active and UDim2.fromOffset(3, 22) or UDim2.fromOffset(3, 8),
+        })
+        setIcon(tab.active and Theme.OnAccent or Theme.Sub)
+    end
+    TabList[#TabList + 1] = tab
+    OnTheme(tab.paint)
+
+    b.MouseEnter:Connect(function()
+        tab.hover = true
+        tab.paint()
+    end)
+    b.MouseLeave:Connect(function()
+        tab.hover = false
+        tab.paint()
+    end)
+    b.MouseButton1Click:Connect(function()
+        SelectTab(id)
+    end)
+    return b
+end
+
+--==================================================
+-- PAGES
+--==================================================
+
+local Body = New("Frame", {
+    Size = UDim2.new(1, -100, 1, -84),
+    Position = UDim2.fromOffset(88, 72),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    ClipsDescendants = true,
+}, Main)
+Bind(Body, "BackgroundColor3", "Bg")
+Corner(Body, 22)
+do
+    local d = Main:FindFirstChild("Deco")
+    local ds = Stroke(d, Color3.new(1, 1, 1), 1.5, 0.1)
+    local dg = New("UIGradient", { Rotation = 0 }, ds)
+    OnTheme(function()
+        local h, sat = Theme.Accent:ToHSV()
+        sat = math.max(sat, 0.6)
+        dg.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Theme.Accent),
+            ColorSequenceKeypoint.new(0.25, Color3.fromHSV((h + 0.1) % 1, sat, 1)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromHSV((h + 0.25) % 1, sat, 1)),
+            ColorSequenceKeypoint.new(0.75, Color3.fromHSV((h + 0.1) % 1, sat, 1)),
+            ColorSequenceKeypoint.new(1, Theme.Accent),
+        })
+    end)
+    TweenService:Create(
+        dg,
+        TweenInfo.new(6, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1),
+        { Rotation = 360 }
+    ):Play()
+end
+New("UIPadding", {
+    PaddingLeft = UDim.new(0, 12),
+    PaddingRight = UDim.new(0, 8),
+    PaddingTop = UDim.new(0, 10),
+    PaddingBottom = UDim.new(0, 8),
+}, Body)
+
+do
+    local expanded = false
+    Track(RunService.RenderStepped:Connect(function()
+        if not Main.Visible then
+            return
+        end
+        local m = UIS:GetMouseLocation()
+        local ap, asz = Rail.AbsolutePosition, Rail.AbsoluteSize
+        local inside = m.X >= ap.X - 4 and m.X <= ap.X + asz.X + 4 and m.Y >= ap.Y and m.Y <= ap.Y + asz.Y
+        if inside ~= expanded then
+            expanded = inside
+            local w = inside and SW or 64
+            Tween(Rail, 0.3, { Size = UDim2.new(0, w, 1, -84) }, Enum.EasingStyle.Quint)
+            Tween(Body, 0.3, {
+                Position = UDim2.fromOffset(w + 24, 72),
+                Size = UDim2.new(1, -(w + 36), 1, -84),
+            }, Enum.EasingStyle.Quint)
+            Tween(Main:FindFirstChild("Deco"), 0.3, {
+                Position = UDim2.fromOffset(w + 24, 72),
+                Size = UDim2.new(1, -(w + 36), 1, -84),
+            }, Enum.EasingStyle.Quint)
+        end
+    end))
+end
+
+local function MakePage(id, title, subtitle)
+    local page = New("ScrollingFrame", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ScrollBarThickness = 3,
+        CanvasSize = UDim2.new(),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        ScrollingDirection = Enum.ScrollingDirection.Y,
+        Visible = false,
+    }, Body)
+    Bind(page, "ScrollBarImageColor3", "Stroke")
+    List(page, 8)
+    Pad(page, 0, 8, 0, 14)
+
+    local head = New("Frame", {
+        Size = UDim2.new(1, 0, 0, 60),
+        BackgroundTransparency = 1,
+        LayoutOrder = Next(page),
+    }, page)
+    local t = Text(head, title, 22, FNT.B, "Text")
+    t.Size = UDim2.new(1, 0, 0, 28)
+    do
+        local tgr = New("UIGradient", { Rotation = 0, Offset = Vector2.new(-1, 0) }, t)
+        OnTheme(function()
+            tgr.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
+                ColorSequenceKeypoint.new(0.35, Theme.Accent),
+                ColorSequenceKeypoint.new(0.65, Theme.Accent2),
+                ColorSequenceKeypoint.new(1, Color3.new(1, 1, 1)),
+            })
+        end)
+        TweenService:Create(
+            tgr,
+            TweenInfo.new(3.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+            { Offset = Vector2.new(1, 0) }
+        ):Play()
+    end
+    local s = Text(head, subtitle or "", 11, FNT.R, "Muted")
+    s.Position = UDim2.fromOffset(0, 29)
+    s.Size = UDim2.new(1, 0, 0, 18)
+    local hb = New("Frame", {
+        Size = UDim2.fromOffset(36, 3),
+        Position = UDim2.fromOffset(0, 53),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.new(1, 1, 1),
+    }, head)
+    hb.Size = UDim2.new(1, 0, 0, 2)
+    Corner(hb, 1)
+    local hg = AccentGrad(hb, 0)
+    hg.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(0.35, 0.4),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+
+    Pages[id] = page
+    return page
+end
+
+local Collapsed = {}
+for id in string.gmatch(Config.CollapsedSections, "[^|]+") do
+    Collapsed[id] = true
+end
+local function SaveCollapsed()
+    local t = {}
+    for id, v in pairs(Collapsed) do
+        if v then
+            t[#t + 1] = id
+        end
+    end
+    table.sort(t)
+    SetConfig("CollapsedSections", table.concat(t, "|"))
+end
+
+local SectionsByPage = {}
+local CurrentSection = nil
+
+local function Section(page, title)
+    local hdr = New("TextButton", {
+        Size = UDim2.new(1, 0, 0, 36),
+        BackgroundTransparency = 1,
+        Text = "",
+        AutoButtonColor = false,
+        LayoutOrder = Next(page),
+    }, page)
+
+    local bar = New("Frame", {
+        Size = UDim2.fromOffset(3, 14),
+        Position = UDim2.new(0, 2, 0.5, -7),
+        BorderSizePixel = 0,
+    }, hdr)
+    Corner(bar, 2)
+    bar.BackgroundColor3 = Color3.new(1, 1, 1)
+    AccentGrad(bar, 90)
+
+    local hl = New("Frame", {
+        Size = UDim2.new(1, -4, 0, 1),
+        Position = UDim2.new(0, 2, 1, -1),
+        BorderSizePixel = 0,
+    }, hdr)
+    Bind(hl, "BackgroundColor3", "Stroke")
+    New("UIGradient", {
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.2),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+    }, hl)
+
+    local label = Text(hdr, title, 13, FNT.B, "Accent")
+    label.Position = UDim2.fromOffset(14, 0)
+    label.Size = UDim2.new(1, -44, 1, 0)
+
+    local chev = New("Frame", {
+        Size = UDim2.fromOffset(14, 14),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new(1, -18, 0.5, 0),
+        BackgroundTransparency = 1,
+    }, hdr)
+    local c1 = New("Frame", {
+        Size = UDim2.fromOffset(8, 2), Position = UDim2.fromOffset(1, 6), Rotation = 45, BorderSizePixel = 0,
+    }, chev)
+    local c2 = New("Frame", {
+        Size = UDim2.fromOffset(8, 2), Position = UDim2.fromOffset(6, 6), Rotation = -45, BorderSizePixel = 0,
+    }, chev)
+    Corner(c1, 1)
+    Corner(c2, 1)
+    OnTheme(function()
+        c1.BackgroundColor3 = Theme.Muted
+        c2.BackgroundColor3 = Theme.Muted
+    end)
+
+    local sec = { label = hdr, items = {}, collapsed = Collapsed[title] == true }
+    function sec.refresh(animate)
+        for _, it in ipairs(sec.items) do
+            it.frame.Visible = it.matched and not sec.collapsed
+        end
+        local rot = sec.collapsed and -90 or 0
+        if animate then
+            Tween(chev, 0.18, { Rotation = rot })
+        else
+            chev.Rotation = rot
+        end
+    end
+    sec.refresh(false)
+
+    hdr.MouseButton1Click:Connect(function()
+        sec.collapsed = not sec.collapsed
+        Collapsed[title] = sec.collapsed
+        SaveCollapsed()
+        sec.refresh(true)
+    end)
+
+    CurrentSection = sec
+    SectionsByPage[page] = SectionsByPage[page] or {}
+    table.insert(SectionsByPage[page], sec)
+    return sec
+end
+
+local function Register(row, search)
+    local sec = CurrentSection
+    if sec then
+        table.insert(sec.items, { frame = row, search = string.lower(search or ""), matched = true })
+        sec.refresh(false)
+    end
+end
+
+local Refreshers = {}
+
+--==================================================
+-- COMPONENTS: Toggle / Slider / ColorRow
+--==================================================
+
+local FuncToggles = {}
+local UpdateSummary = function() end
+
+local function Toggle(page, opts)
+    local row = Panel(page, UDim2.new(1, 0, 0, 64), "TextButton")
+    HoverRow(row)
+    Register(row, opts.title .. " " .. (opts.desc or ""))
+    local rowStroke = row:FindFirstChildOfClass("UIStroke")
+
+    local tint = New("Frame", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+    }, row)
+    Corner(tint, 16)
+    local tg = AccentGrad(tint, 0)
+    tg.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(0.6, 0.6),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+
+    local title = Text(row, opts.title, 14, FNT.B, "Text")
+    title.Position = UDim2.fromOffset(18, 11)
+    title.Size = UDim2.new(1, -96, 0, 20)
+
+    local desc = Text(row, opts.desc or "", 12, FNT.R, "Sub")
+    desc.Position = UDim2.fromOffset(18, 33)
+    desc.Size = UDim2.new(1, -96, 0, 18)
+
+    local strip = New("Frame", {
+        Size = UDim2.fromOffset(3, 26),
+        Position = UDim2.new(0, 4, 0.5, -13),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BackgroundTransparency = 1,
+    }, row)
+    Corner(strip, 2)
+    AccentGrad(strip, 90)
+
+    local glow = New("Frame", {
+        Size = UDim2.fromOffset(62, 40),
+        Position = UDim2.new(1, -71, 0.5, -20),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BackgroundTransparency = 1,
+    }, row)
+    Corner(glow, 20)
+    AccentGrad(glow, 0)
+
+    local track = New("Frame", {
+        Size = UDim2.fromOffset(48, 26),
+        Position = UDim2.new(1, -64, 0.5, -13),
+        BorderSizePixel = 0,
+    }, row)
+    Corner(track, 13)
+    local tStroke = Stroke(track, Theme.Stroke, 1, 0.2)
+    Bind(tStroke, "Color", "Stroke")
+
+    local fill = New("Frame", {
+        Size = UDim2.fromScale(1, 1),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BackgroundTransparency = 1,
+    }, track)
+    Corner(fill, 13)
+    AccentGrad(fill, 0)
+
+    local knob = New("Frame", {
+        Size = UDim2.fromOffset(20, 20),
+        Position = UDim2.fromOffset(3, 3),
+        BorderSizePixel = 0,
+    }, track)
+    Corner(knob, 10)
+
+    local state = Config[opts.key] == true
+
+    if page == Pages["Functions"] then
+        FuncToggles[#FuncToggles + 1] = function()
+            return state
+        end
+    end
+
+    local function render(animate)
+        Apply(track, animate, { BackgroundColor3 = Theme.Button })
+        Apply(fill, animate, { BackgroundTransparency = state and 0 or 1 })
+        Apply(glow, animate, { BackgroundTransparency = state and 0.82 or 1 })
+        Apply(tint, animate, { BackgroundTransparency = state and 0.86 or 1 })
+        Apply(knob, animate, {
+            Position = state and UDim2.fromOffset(25, 3) or UDim2.fromOffset(3, 3),
+            BackgroundColor3 = state and Theme.OnAccent or Theme.Sub,
+        })
+        Apply(strip, animate, { BackgroundTransparency = state and 0 or 1 })
+        Apply(tStroke, animate, { Color = state and Theme.Accent or Theme.Stroke })
+        if rowStroke then
+            Apply(rowStroke, animate, {
+                Color = state and Theme.Accent or Theme.Stroke,
+                Transparency = state and 0.55 or 0.4,
+            })
+        end
+        UpdateSummary()
+    end
+    OnTheme(function()
+        render(false)
+    end)
+
+    local function set(v, fire)
+        state = v
+        SetConfig(opts.key, v)
+        render(true)
+        if v and fire then
+            pcall(function()
+                local r = New("Frame", {
+                    Size = UDim2.fromOffset(20, 20),
+                    AnchorPoint = Vector2.new(0.5, 0.5),
+                    Position = UDim2.new(1, -40, 0.5, 0),
+                    BackgroundTransparency = 1,
+                    ZIndex = 6,
+                }, row)
+                Corner(r, 100)
+                local rs = Stroke(r, Theme.Accent, 2, 0.05)
+                Tween(r, 0.6, { Size = UDim2.fromOffset(130, 130) }, Enum.EasingStyle.Quad)
+                Tween(rs, 0.6, { Transparency = 1 }, Enum.EasingStyle.Quad)
+                task.delay(0.65, function()
+                    r:Destroy()
+                end)
+            end)
+        end
+        if fire then
+            PlayToggleSound(v)
+            if opts.callback then
+                task.spawn(opts.callback, v)
+            end
+        end
+    end
+
+    row.MouseButton1Click:Connect(function()
+        set(not state, true)
+    end)
+
+    Refreshers[#Refreshers + 1] = function()
+        state = Config[opts.key] == true
+        render(false)
+        if opts.callback then
+            task.spawn(opts.callback, state)
+        end
+    end
+
+    if opts.callback then
+        task.defer(opts.callback, state)
+    end
+
+    return {
+        Get = function()
+            return state
+        end,
+        Set = function(v)
+            set(v, true)
+        end,
+    }
+end
+
+local function Slider(page, opts)
+    local min, max, step = opts.min, opts.max, opts.step or 1
+    local row = Panel(page, UDim2.new(1, 0, 0, 78))
+    Register(row, opts.title .. " " .. (opts.desc or ""))
+
+    local title = Text(row, opts.title, 13, FNT.M, "Text")
+    title.Position = UDim2.fromOffset(16, 10)
+    title.Size = UDim2.new(1, -110, 0, 20)
+
+    local desc = Text(row, opts.desc or "", 12, FNT.R, "Sub")
+    desc.Position = UDim2.fromOffset(16, 31)
+    desc.Size = UDim2.new(1, -110, 0, 16)
+
+    local pill = New("Frame", {
+        Size = UDim2.fromOffset(82, 22),
+        Position = UDim2.new(1, -98, 0, 9),
+        BorderSizePixel = 0,
+    }, row)
+    Corner(pill, 11)
+    Bind(pill, "BackgroundColor3", "Surface2")
+    Bind(Stroke(pill, Theme.Accent, 1, 0.6), "Color", "Accent")
+    local val = Text(row, "", 12, FNT.B, "Accent", Enum.TextXAlignment.Center)
+    val.Position = UDim2.new(1, -98, 0, 9)
+    val.Size = UDim2.fromOffset(82, 22)
+
+    local bar = New("Frame", {
+        Size = UDim2.new(1, -32, 0, 6),
+        Position = UDim2.fromOffset(16, 60),
+        BorderSizePixel = 0,
+    }, row)
+    Corner(bar, 3)
+    Bind(bar, "BackgroundColor3", "Button")
+
+    local fill = New("Frame", {
+        Size = UDim2.fromScale(0, 1),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.new(1, 1, 1),
+    }, bar)
+    Corner(fill, 3)
+    AccentGrad(fill, 0)
+
+    local knob = New("Frame", {
+        Size = UDim2.fromOffset(16, 16),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0, 0.5),
+        BorderSizePixel = 0,
+    }, bar)
+    Corner(knob, 8)
+    Bind(knob, "BackgroundColor3", "Text")
+    Bind(Stroke(knob, Theme.Accent, 3, 0), "Color", "Accent")
+
+    local hit = New("TextButton", {
+        Size = UDim2.new(1, -32, 0, 30),
+        Position = UDim2.fromOffset(16, 48),
+        BackgroundTransparency = 1,
+        Text = "",
+        AutoButtonColor = false,
+    }, row)
+
+    local value = Config[opts.key]
+
+    local function show()
+        local a = (value - min) / (max - min)
+        fill.Size = UDim2.fromScale(a, 1)
+        knob.Position = UDim2.fromScale(a, 0.5)
+        val.Text = string.format("%g", value) .. (opts.suffix or "")
+    end
+
+    local function setValue(v, fire)
+        v = math.clamp(math.floor((v - min) / step + 0.5) * step + min, min, max)
+        if v == value and fire then
+            return
+        end
+        value = v
+        show()
+        if fire then
+            SetConfig(opts.key, v)
+            if opts.callback then
+                task.spawn(opts.callback, v)
+            end
+        end
+    end
+
+    local dragging = false
+    local function fromX(x)
+        local a = math.clamp((x - bar.AbsolutePosition.X) / math.max(1, bar.AbsoluteSize.X), 0, 1)
+        setValue(min + (max - min) * a, true)
+    end
+
+    hit.InputBegan:Connect(function(input)
+        if IsPointer(input) then
+            dragging = true
+            page.ScrollingEnabled = false
+            Tween(knob, 0.12, { Size = UDim2.fromOffset(21, 21) })
+            fromX(input.Position.X)
+        end
+    end)
+    Track(UIS.InputChanged:Connect(function(input)
+        if dragging and IsMove(input) then
+            fromX(input.Position.X)
+        end
+    end))
+    Track(UIS.InputEnded:Connect(function(input)
+        if dragging and IsPointer(input) then
+            dragging = false
+            page.ScrollingEnabled = true
+            Tween(knob, 0.12, { Size = UDim2.fromOffset(16, 16) })
+        end
+    end))
+
+    value = math.clamp(value, min, max)
+    show()
+
+    Refreshers[#Refreshers + 1] = function()
+        value = math.clamp(Config[opts.key], min, max)
+        show()
+        if opts.callback then
+            task.spawn(opts.callback, value)
+        end
+    end
+
+    if opts.callback then
+        task.defer(opts.callback, value)
+    end
+end
+
+-- ============================================================
+-- ============================================================
+local PaletteColors = {
+    "FFFFFF", "BEBEBE", "6B6B76", "2A2A33", "0E0E14", "000000", "8B5CF6", "6366F1",
+    "3B82F6", "22D3EE", "10B981", "84CC16", "FACC15", "FB923C", "EF4444", "EC4899",
+}
+
+local ActiveOverlay, ActivePopup
+local PaletteConns = {}
+
+local function ClosePalette()
+    for _, c in ipairs(PaletteConns) do
+        pcall(function()
+            c:Disconnect()
+        end)
+    end
+    PaletteConns = {}
+    if ActiveOverlay then
+        ActiveOverlay:Destroy()
+        ActiveOverlay = nil
+    end
+    if ActivePopup then
+        ActivePopup:Destroy()
+        ActivePopup = nil
+    end
+end
+
+local themePending = false
+local function QueueTheme()
+    if themePending then
+        return
+    end
+    themePending = true
+    task.defer(function()
+        themePending = false
+        ApplyTheme()
+    end)
+end
+
+local function OpenPalette(title, key, onPick)
+    ClosePalette()
+
+    ActiveOverlay = New("TextButton", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = Color3.new(0, 0, 0),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Text = "",
+        AutoButtonColor = false,
+        ZIndex = 150,
+    }, Screen)
+    Tween(ActiveOverlay, 0.2, { BackgroundTransparency = 0.45 })
+    ActiveOverlay.MouseButton1Click:Connect(ClosePalette)
+
+    local PW, PH = 240, 304
+    local pop = New("CanvasGroup", {
+        Size = UDim2.fromOffset(PW, PH),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        BackgroundColor3 = Theme.Surface,
+        BorderSizePixel = 0,
+        GroupTransparency = 1,
+        ZIndex = 160,
+        Active = true,
+    }, Screen)
+    Corner(pop, 16)
+    Stroke(pop, Theme.Accent, 1.5, 0.35)
+    local vs = ViewSize()
+    New("UIScale", { Scale = math.clamp((vs.Y - 24) / PH, 0.5, 1) }, pop)
+    ActivePopup = pop
+    Tween(pop, 0.2, { GroupTransparency = 0 })
+
+    local okc, c0 = pcall(Color3.fromHex, Config[key])
+    if not okc then
+        c0 = Color3.new(1, 1, 1)
+    end
+    local H, S, V = c0:ToHSV()
+
+    local ttl = Text(pop, title or "เลือกสี", 13, FNT.B, Theme.Text)
+    ttl.Position = UDim2.fromOffset(14, 10)
+    ttl.Size = UDim2.new(1, -130, 0, 20)
+
+    local prev = New("Frame", {
+        Size = UDim2.fromOffset(36, 18),
+        Position = UDim2.fromOffset(PW - 82, 11),
+        BorderSizePixel = 0,
+    }, pop)
+    Corner(prev, 6)
+    Stroke(prev, Color3.new(1, 1, 1), 1, 0.75)
+
+    local closeB = New("TextButton", {
+        Size = UDim2.fromOffset(24, 24),
+        Position = UDim2.fromOffset(PW - 38, 8),
+        BackgroundColor3 = Theme.Surface2,
+        BorderSizePixel = 0,
+        Text = "×",
+        TextSize = 18,
+        Font = FNT.B,
+        TextColor3 = Theme.Sub,
+        AutoButtonColor = false,
+    }, pop)
+    Corner(closeB, 8)
+    closeB.MouseButton1Click:Connect(ClosePalette)
+
+    local sv = New("Frame", {
+        Size = UDim2.fromOffset(PW - 28, 124),
+        Position = UDim2.fromOffset(14, 40),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.fromHSV(H, 1, 1),
+    }, pop)
+    Corner(sv, 10)
+    local wf = New("Frame", {
+        Size = UDim2.fromScale(1, 1),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.new(1, 1, 1),
+    }, sv)
+    Corner(wf, 10)
+    New("UIGradient", { Transparency = NumberSequence.new(0, 1) }, wf)
+    local bf = New("Frame", {
+        Size = UDim2.fromScale(1, 1),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.new(0, 0, 0),
+    }, sv)
+    Corner(bf, 10)
+    New("UIGradient", { Rotation = 90, Transparency = NumberSequence.new(1, 0) }, bf)
+    local svCur = New("Frame", {
+        Size = UDim2.fromOffset(16, 16),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+    }, sv)
+    Corner(svCur, 8)
+    Stroke(svCur, Color3.new(1, 1, 1), 2.5, 0)
+    local svHit = New("TextButton", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Text = "",
+        AutoButtonColor = false,
+    }, sv)
+
+    local hue = New("Frame", {
+        Size = UDim2.fromOffset(PW - 28, 14),
+        Position = UDim2.fromOffset(14, 176),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.new(1, 1, 1),
+    }, pop)
+    Corner(hue, 7)
+    New("UIGradient", {
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
+            ColorSequenceKeypoint.new(1 / 6, Color3.fromRGB(255, 255, 0)),
+            ColorSequenceKeypoint.new(2 / 6, Color3.fromRGB(0, 255, 0)),
+            ColorSequenceKeypoint.new(3 / 6, Color3.fromRGB(0, 255, 255)),
+            ColorSequenceKeypoint.new(4 / 6, Color3.fromRGB(0, 0, 255)),
+            ColorSequenceKeypoint.new(5 / 6, Color3.fromRGB(255, 0, 255)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0)),
+        }),
+    }, hue)
+    local hueCur = New("Frame", {
+        Size = UDim2.fromOffset(18, 18),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BorderSizePixel = 0,
+    }, hue)
+    Corner(hueCur, 9)
+    Stroke(hueCur, Color3.new(1, 1, 1), 2.5, 0)
+    local hueHit = New("TextButton", {
+        Size = UDim2.new(1, 0, 1, 12),
+        Position = UDim2.fromOffset(0, -6),
+        BackgroundTransparency = 1,
+        Text = "",
+        AutoButtonColor = false,
+    }, hue)
+
+    local box = New("TextBox", {
+        Size = UDim2.fromOffset(PW - 28, 30),
+        Position = UDim2.fromOffset(14, 202),
+        BackgroundColor3 = Theme.Surface2,
+        BorderSizePixel = 0,
+        Text = "",
+        PlaceholderText = "#RRGGBB",
+        ClearTextOnFocus = false,
+        TextSize = 12,
+        Font = FNT.M,
+        TextColor3 = Theme.Text,
+        PlaceholderColor3 = Theme.Muted,
+    }, pop)
+    Corner(box, 9)
+    Stroke(box, Theme.Stroke, 1, 0.3)
+
+    local function render(fromBox)
+        local c = Color3.fromHSV(H, S, V)
+        sv.BackgroundColor3 = Color3.fromHSV(H, 1, 1)
+        svCur.Position = UDim2.fromScale(S, 1 - V)
+        hueCur.Position = UDim2.fromScale(H, 0.5)
+        hueCur.BackgroundColor3 = Color3.fromHSV(H, 1, 1)
+        prev.BackgroundColor3 = c
+        if not fromBox then
+            box.Text = "#" .. string.upper(c:ToHex())
+        end
+        return c
+    end
+    local function commit(fromBox)
+        onPick(render(fromBox))
+    end
+    render(false)
+
+    local function bindDrag(hit, onMove)
+        local dragging, dInput = false, nil
+        local off = Vector2.zero
+        hit.InputBegan:Connect(function(input)
+            if not IsPointer(input) then
+                return
+            end
+            local p = Vector2.new(input.Position.X, input.Position.Y)
+            local a, sz = hit.AbsolutePosition, hit.AbsoluteSize
+            local inset = GuiService:GetGuiInset()
+            local q = p + inset
+            local inside = q.X >= a.X and q.X <= a.X + sz.X and q.Y >= a.Y and q.Y <= a.Y + sz.Y
+            off = inside and inset or Vector2.zero
+            dragging = true
+            dInput = input
+            onMove(p + off)
+        end)
+        PaletteConns[#PaletteConns + 1] = UIS.InputChanged:Connect(function(input)
+            if dragging and IsMove(input) then
+                if input.UserInputType == Enum.UserInputType.Touch and input ~= dInput then
+                    return
+                end
+                onMove(Vector2.new(input.Position.X, input.Position.Y) + off)
+            end
+        end)
+        PaletteConns[#PaletteConns + 1] = UIS.InputEnded:Connect(function(input)
+            if dragging and IsPointer(input) then
+                if input.UserInputType == Enum.UserInputType.Touch and input ~= dInput then
+                    return
+                end
+                dragging = false
+            end
+        end)
+    end
+
+    bindDrag(svHit, function(pos)
+        S = math.clamp((pos.X - sv.AbsolutePosition.X) / math.max(1, sv.AbsoluteSize.X), 0, 1)
+        V = 1 - math.clamp((pos.Y - sv.AbsolutePosition.Y) / math.max(1, sv.AbsoluteSize.Y), 0, 1)
+        commit(false)
+    end)
+    bindDrag(hueHit, function(pos)
+        H = math.clamp((pos.X - hue.AbsolutePosition.X) / math.max(1, hue.AbsoluteSize.X), 0, 1)
+        commit(false)
+    end)
+
+    box.FocusLost:Connect(function()
+        local h = string.match(box.Text, "^%s*#?(%x%x%x%x%x%x)%s*$")
+        if h then
+            H, S, V = Color3.fromHex(h):ToHSV()
+            commit(false)
+        else
+            box.TextColor3 = RGB(235, 75, 90)
+            task.delay(0.8, function()
+                if box.Parent then
+                    box.TextColor3 = Theme.Text
+                    render(false)
+                end
+            end)
+        end
+    end)
+
+    for i, hexv in ipairs(PaletteColors) do
+        local c = Color3.fromHex(hexv)
+        local sw = New("TextButton", {
+            Size = UDim2.fromOffset(22, 22),
+            Position = UDim2.fromOffset(14 + ((i - 1) % 8) * 27, 244 + math.floor((i - 1) / 8) * 28),
+            BackgroundColor3 = c,
+            BorderSizePixel = 0,
+            Text = "",
+            AutoButtonColor = false,
+        }, pop)
+        Corner(sw, 11)
+        Stroke(sw, Color3.new(1, 1, 1), 1, 0.8)
+        sw.MouseButton1Click:Connect(function()
+            H, S, V = c:ToHSV()
+            commit(false)
+        end)
+    end
+end
+
+local ColorRefreshers = {}
+
+local function ColorRow(page, title, key)
+    local row = Panel(page, UDim2.new(1, 0, 0, 50), "TextButton")
+    HoverRow(row)
+    Register(row, title)
+
+    local t = Text(row, title, 12, FNT.M, "Text")
+    t.Position = UDim2.fromOffset(18, 0)
+    t.Size = UDim2.new(1, -176, 1, 0)
+
+    local hexLabel = Text(row, "", 10, FNT.M, "Muted", Enum.TextXAlignment.Right)
+    hexLabel.Position = UDim2.new(1, -152, 0, 0)
+    hexLabel.Size = UDim2.fromOffset(84, 50)
+
+    local swatch = New("Frame", {
+        Size = UDim2.fromOffset(44, 24),
+        Position = UDim2.new(1, -60, 0.5, -12),
+        BorderSizePixel = 0,
+    }, row)
+    Corner(swatch, 8)
+    Stroke(swatch, Color3.new(1, 1, 1), 1, 0.7)
+
+    local function refresh()
+        swatch.BackgroundColor3 = Hex(key, RGB(100, 100, 100))
+        hexLabel.Text = string.upper(tostring(Config[key]))
+    end
+    refresh()
+    Refreshers[#Refreshers + 1] = refresh
+    ColorRefreshers[#ColorRefreshers + 1] = refresh
+
+    row.MouseButton1Click:Connect(function()
+        OpenPalette(title, key, function(c)
+            SetConfig(key, "#" .. string.upper(c:ToHex()))
+            refresh()
+            QueueTheme()
+        end)
+    end)
+end
+
+local ThemePresets = {
+    { "Graphite", "#C9CBD3", "#0A0A0C", "#232328" },
+    { "Violet", "#8B5CF6", "#09090D", "#1C1C26" },
+    { "Crimson", "#F43F5E", "#0B0708", "#26151A" },
+    { "Cyber", "#22D3EE", "#06090C", "#122029" },
+    { "Toxic", "#4ADE80", "#060A07", "#13211A" },
+    { "Sunset", "#FB923C", "#0C0805", "#271A10" },
+    { "Neon Violet", "#A78BFA", "#08080F", "#1E1B33" },
+    { "Sakura", "#F9A8D4", "#0D0709", "#2A1620" },
+    { "Ocean", "#38BDF8", "#050A10", "#102235" },
+    { "Gold", "#FACC15", "#0B0A05", "#2A2410" },
+    { "Aurora", "#2DD4BF", "#050B0B", "#102A2A" },
+    { "Royal", "#6366F1", "#07071A", "#1A1C3D" },
+    { "Matrix", "#00FF88", "#030A06", "#0C2418" },
+    { "Blood Moon", "#EF4444", "#0A0404", "#2A1010" },
+    { "Ice", "#BAE6FD", "#070B10", "#14202C" },
+    { "Lavender", "#C4B5FD", "#0A0910", "#221E36" },
+    { "Mint", "#6EE7B7", "#050B09", "#12281F" },
+    { "Rose Gold", "#FDA4AF", "#0C0809", "#2C1A1D" },
+}
+
+local function ThemeGrid(page)
+    local holder = New("Frame", {
+        Size = UDim2.new(1, 0, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1,
+        LayoutOrder = Next(page),
+    }, page)
+    New("UIGridLayout", {
+        CellSize = UDim2.new(1 / 3, -7, 0, 56),
+        CellPadding = UDim2.fromOffset(10, 10),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+    }, holder)
+    Register(holder, "ธีม theme preset สำเร็จรูป")
+
+    for _, p in ipairs(ThemePresets) do
+        local card = Panel(holder, nil, "TextButton")
+        HoverRow(card)
+
+        local function dot(hex, x)
+            local d = New("Frame", {
+                Size = UDim2.fromOffset(22, 22),
+                AnchorPoint = Vector2.new(0, 0.5),
+                Position = UDim2.new(0, x, 0.5, 0),
+                BorderSizePixel = 0,
+                BackgroundColor3 = Color3.fromHex(hex),
+            }, card)
+            Corner(d, 11)
+            Stroke(d, Color3.new(1, 1, 1), 1, 0.8)
+        end
+        dot(p[3], 12)
+        dot(p[4], 24)
+        dot(p[2], 36)
+
+        local n = Text(card, p[1], 12, FNT.M, "Text")
+        n.Position = UDim2.fromOffset(68, 0)
+        n.Size = UDim2.new(1, -74, 1, 0)
+
+        card.MouseButton1Click:Connect(function()
+            SetConfig("UIAccentColor", p[2])
+            SetConfig("UIBackgroundColor", p[3])
+            SetConfig("UIButtonColor", p[4])
+            SetConfig("FloatingButtonColor", p[3])
+            SetConfig("FloatingBorderColor", p[2])
+            SetConfig("FloatingGlowColor", p[2])
+            for _, fn in ipairs(ColorRefreshers) do
+                pcall(fn)
+            end
+            QueueTheme()
+            Toast("ใช้ธีม " .. p[1])
+        end)
+    end
+end
+
+--==================================================
+-- HOME
+--==================================================
+
+local Home = MakePage("Home", "หน้าหลัก", "ภาพรวมและข้อมูลเซิร์ฟเวอร์")
+
+local Hero = Panel(Home, UDim2.new(1, 0, 0, 84))
+Tint(Hero)
+local HeroSub = Text(Hero, "", 11, FNT.M, "Muted")
+HeroSub.Position = UDim2.fromOffset(20, 14)
+HeroSub.Size = UDim2.new(0.6, 0, 0, 16)
+local HeroName = Text(Hero, LocalPlayer.DisplayName, 24, FNT.B, Color3.new(1, 1, 1))
+HeroName.Position = UDim2.fromOffset(20, 32)
+HeroName.Size = UDim2.new(0.6, 0, 0, 38)
+AccentGrad(HeroName, 0)
+local HeroClock = Text(Hero, "", 26, FNT.B, "Text", Enum.TextXAlignment.Right)
+HeroClock.Position = UDim2.new(0.5, 0, 0, 16)
+HeroClock.Size = UDim2.new(0.5, -20, 0, 34)
+local HeroDate = Text(Hero, "", 10, FNT.M, "Muted", Enum.TextXAlignment.Right)
+HeroDate.Position = UDim2.new(0.5, 0, 0, 52)
+HeroDate.Size = UDim2.new(0.5, -20, 0, 16)
+
+local MapImage = "rbxthumb://type=GameIcon&id=" .. tostring(game.GameId) .. "&w=150&h=150"
+
+local MapCard = Panel(Home, UDim2.new(1, 0, 0, 116))
+MapCard.ClipsDescendants = true
+
+local MapBG = New("ImageLabel", {
+    Size = UDim2.fromScale(1, 1),
+    BackgroundTransparency = 1,
+    Image = MapImage,
+    ScaleType = Enum.ScaleType.Crop,
+    ImageTransparency = 0.86,
+}, MapCard)
+Corner(MapBG, 12)
+
+local MapFade = New("Frame", { Size = UDim2.fromScale(1, 1), BorderSizePixel = 0 }, MapCard)
+Bind(MapFade, "BackgroundColor3", "Surface")
+New("UIGradient", {
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.1),
+        NumberSequenceKeypoint.new(1, 0.7),
+    }),
+}, MapFade)
+Corner(MapFade, 12)
+Tint(MapCard)
+
+local MapIcon = New("ImageLabel", {
+    Size = UDim2.fromOffset(84, 84),
+    Position = UDim2.fromOffset(16, 16),
+    BorderSizePixel = 0,
+    Image = MapImage,
+    ScaleType = Enum.ScaleType.Crop,
+}, MapCard)
+Corner(MapIcon, 16)
+Bind(MapIcon, "BackgroundColor3", "Button")
+Bind(Stroke(MapIcon, Theme.Stroke, 1.5, 0.1), "Color", "Stroke")
+
+local MapName = Text(MapCard, tostring(game.Name or "Unknown"), 17, FNT.B, "Text")
+MapName.Position = UDim2.fromOffset(112, 16)
+MapName.Size = UDim2.new(1, -128, 0, 26)
+
+local MapBy = Text(MapCard, "กำลังโหลดข้อมูลแมพ...", 11, FNT.R, "Muted")
+MapBy.Position = UDim2.fromOffset(112, 43)
+MapBy.Size = UDim2.new(1, -128, 0, 16)
+
+local Chips = New("Frame", {
+    Size = UDim2.new(1, -128, 0, 24),
+    Position = UDim2.fromOffset(112, 72),
+    BackgroundTransparency = 1,
+}, MapCard)
+New("UIListLayout", {
+    FillDirection = Enum.FillDirection.Horizontal,
+    Padding = UDim.new(0, 6),
+    SortOrder = Enum.SortOrder.LayoutOrder,
+}, Chips)
+
+local function Chip(text)
+    local c = New("TextLabel", {
+        Size = UDim2.fromOffset(0, 24),
+        AutomaticSize = Enum.AutomaticSize.X,
+        BorderSizePixel = 0,
+        Text = text,
+        TextSize = 10,
+        Font = FNT.M,
+        LayoutOrder = Next(Chips),
+    }, Chips)
+    Bind(c, "BackgroundColor3", "Surface2")
+    Bind(c, "TextColor3", "Sub")
+    Corner(c, 12)
+    Pad(c, 10, 10, 0, 0)
+    return c
+end
+
+local ChipPlace = Chip("ID " .. tostring(game.PlaceId))
+local ChipPlayers = Chip("ผู้เล่น -/-")
+
+task.spawn(function()
+    pcall(function()
+        local info = MarketplaceService:GetProductInfo(game.PlaceId)
+        if info then
+            if info.Name and info.Name ~= "" then
+                MapName.Text = tostring(info.Name)
+                BrandSub.Text = tostring(info.Name)
+            end
+            if info.Creator and info.Creator.Name then
+                MapBy.Text = "โดย " .. tostring(info.Creator.Name)
+            else
+                MapBy.Text = ""
+            end
+        end
+    end)
+end)
+
+local function Stat(parent, label, size)
+    local c = Panel(parent, size)
+    local bar = New("Frame", {
+        Size = UDim2.fromOffset(3, 18),
+        Position = UDim2.fromOffset(0, 12),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.new(1, 1, 1),
+    }, c)
+    Corner(bar, 2)
+    AccentGrad(bar, 90)
+    local l = Text(c, label, 10, FNT.M, "Muted")
+    l.Position = UDim2.fromOffset(16, 11)
+    l.Size = UDim2.new(1, -30, 0, 14)
+    local v = Text(c, "-", 14, FNT.B, "Text")
+    v.Position = UDim2.fromOffset(16, 30)
+    v.Size = UDim2.new(1, -30, 0, 22)
+    return v
+end
+
+local Grid = New("Frame", {
+    Size = UDim2.new(1, 0, 0, 0),
+    AutomaticSize = Enum.AutomaticSize.Y,
+    BackgroundTransparency = 1,
+    LayoutOrder = Next(Home),
+}, Home)
+New("UIGridLayout", {
+    CellSize = UDim2.new(0.5, -5, 0, 64),
+    CellPadding = UDim2.fromOffset(10, 10),
+    SortOrder = Enum.SortOrder.LayoutOrder,
+}, Grid)
+
+local StatPlayer = Stat(Grid, "ผู้เล่น")
+local StatTime = Stat(Grid, "เวลาในเซิร์ฟ")
+local StatFps = Stat(Grid, "FPS")
+local StatPing = Stat(Grid, "Ping")
+
+local PerfCard = Panel(Home, UDim2.new(1, 0, 0, 120))
+Tint(PerfCard)
+local PerfTitle = Text(PerfCard, "ประสิทธิภาพ (FPS)", 12, FNT.B, "Text")
+PerfTitle.Position = UDim2.fromOffset(18, 12)
+PerfTitle.Size = UDim2.new(0.5, 0, 0, 18)
+local PerfAvg = Text(PerfCard, "", 11, FNT.M, "Sub", Enum.TextXAlignment.Right)
+PerfAvg.Position = UDim2.new(0.5, 0, 0, 12)
+PerfAvg.Size = UDim2.new(0.5, -18, 0, 18)
+local PerfBars = New("Frame", {
+    Size = UDim2.new(1, -36, 0, 68),
+    Position = UDim2.fromOffset(18, 40),
+    BackgroundTransparency = 1,
+}, PerfCard)
+
+local PERF_N = 36
+local PerfBar, PerfHist = {}, {}
+for i = 1, PERF_N do
+    local b = New("Frame", {
+        Size = UDim2.new(1 / PERF_N, -2, 0, 2),
+        AnchorPoint = Vector2.new(0, 1),
+        Position = UDim2.new((i - 1) / PERF_N, 1, 1, 0),
+        BorderSizePixel = 0,
+        BackgroundTransparency = 1,
+    }, PerfBars)
+    Corner(b, 2)
+    PerfBar[i] = b
+    PerfHist[i] = 0
+end
+
+local function PerfUpdate()
+    table.remove(PerfHist, 1)
+    PerfHist[#PerfHist + 1] = Metrics.fps
+    local peak, sum, cnt = 60, 0, 0
+    for _, v in ipairs(PerfHist) do
+        if v > peak then
+            peak = v
+        end
+        if v > 0 then
+            sum = sum + v
+            cnt = cnt + 1
+        end
+    end
+    for i, v in ipairs(PerfHist) do
+        local b = PerfBar[i]
+        b.Size = UDim2.new(1 / PERF_N, -2, math.clamp(v / peak, 0.04, 1), 0)
+        b.BackgroundColor3 = Level(v, 50, 30, true)
+        b.BackgroundTransparency = v == 0 and 1 or 0.08
+    end
+    PerfAvg.Text = "เฉลี่ย " .. tostring(cnt > 0 and math.floor(sum / cnt + 0.5) or 0) .. " FPS"
+end
+
+local sessionStart = os.time()
+
+local function RefreshHome()
+    local hr = tonumber(os.date("%H")) or 12
+    HeroSub.Text = (hr >= 5 and hr < 12 and "อรุณสวัสดิ์")
+        or (hr >= 12 and hr < 17 and "สวัสดีตอนบ่าย")
+        or (hr >= 17 and hr < 21 and "สวัสดีตอนเย็น")
+        or "ราตรีสวัสดิ์"
+    HeroClock.Text = os.date("%H:%M")
+    HeroDate.Text = os.date("%d / %m / %Y")
+    local sec = math.max(0, os.time() - sessionStart)
+    StatPlayer.Text = LocalPlayer.DisplayName
+    StatTime.Text = string.format("%02d:%02d:%02d", math.floor(sec / 3600), math.floor((sec % 3600) / 60), sec % 60)
+    StatFps.Text = tostring(Metrics.fps)
+    StatFps.TextColor3 = Level(Metrics.fps, 50, 30, true)
+    StatPing.Text = tostring(Metrics.ping) .. " ms"
+    StatPing.TextColor3 = Level(Metrics.ping, 80, 160, false)
+    ChipPlayers.Text = string.format("ผู้เล่น %d/%d", #Players:GetPlayers(), Players.MaxPlayers)
+    PerfUpdate()
+end
+
+task.spawn(function()
+    while Screen.Parent do
+        RefreshStats()
+        RefreshHome()
+        task.wait(0.5)
+    end
+end)
+
+--==================================================
+-- FUNCTIONS
+--==================================================
+
+local Functions = MakePage("Functions", "ฟาร์มแร่ & คนขุด", "เปิด / ปิดการใช้งานได้ทันที  •  เซฟอัตโนมัติ")
+
+--==================================================
+-- RELWX MINE  |  My Anime Mine — ฟังก์ชันทั้งหมด
+--==================================================
+
+;(function()
+    local cloneref = (cloneref or clonereference or function(inst) return inst end)
+    local function safeService(name)
+        local ok, svc = pcall(function()
+            local s = game:GetService(name)
+            local ref = cloneref(s)
+            if ref and typeof(ref) == "Instance" then
+                return ref
+            end
+            return s
+        end)
+        return ok and svc or nil
+    end
+    local ReplicatedStorage = safeService("ReplicatedStorage") or game:GetService("ReplicatedStorage")
+    local VirtualUser = safeService("VirtualUser") or game:GetService("VirtualUser")
+
+    local myToken = tick()
+    _G.RelwxMineActiveToken = myToken
+    _G.RelwxMineRunning = true
+    local sessionStartTime = os.clock()
+    local function alive()
+        return _G.RelwxMineRunning and _G.RelwxMineActiveToken == myToken
+    end
+
+    local _conns = {}
+    local function trackConn(c)
+        _conns[#_conns + 1] = c
+        return c
+    end
+
+    _G.RelwxMineCleanup = function()
+        _G.RelwxMineRunning = false
+        _G.RelwxMineActiveToken = 0
+        for _, c in ipairs(_conns) do
+            pcall(function()
+                c:Disconnect()
+            end)
+        end
+        table.clear(_conns)
+        pcall(function()
+            RunService:Set3dRenderingEnabled(true)
+        end)
+        for _, n in ipairs({ "RELWX_UI", "RELWX_Floating", "RELWX_Stats" }) do
+            pcall(function()
+                local g = LocalPlayer.PlayerGui:FindFirstChild(n)
+                if g then
+                    g:Destroy()
+                end
+            end)
+        end
+    end
+
+    --==================================================
+    -- GAME LOGIC
+    --==================================================
+    local GameState = nil
+    pcall(function()
+        GameState = require(ReplicatedStorage.Modules.GameState)
+    end)
+    local MineConfig = nil
+    pcall(function()
+        MineConfig = require(ReplicatedStorage.Modules.MineConfig)
+    end)
+    local Items = nil
+    pcall(function()
+        Items = require(ReplicatedStorage.Modules.Items)
+    end)
+    local MineStock = nil
+    pcall(function()
+        MineStock = require(ReplicatedStorage.Modules.MineStock)
+    end)
+    local MineInventory = nil
+    pcall(function()
+        MineInventory = require(ReplicatedStorage.Modules.MineInventory)
+    end)
+    local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    local function getMyPlot()
+        local myId = LocalPlayer.UserId
+        local plots = workspace:FindFirstChild("MineWorld") and workspace.MineWorld:FindFirstChild("Plots")
+        if plots then
+            for _, p in ipairs(plots:GetChildren()) do
+                if p:GetAttribute("OwnerUserId") == myId then
+                    return p
+                end
+            end
+        end
+        return nil
+    end
+    local FarmState = {
+        MasterAFK         = false,
+        AutoClickNodes    = false,
+        ClickDelay        = 0.08,
+        AutoTakeAndSell   = false,
+        SellInterval      = 8,
+        AutoSweepLoot     = false,
+        AutoBuySkills     = false,
+        AutoCoreUpgrades  = false,
+        AutoClaimRewards  = false,
+        AutoEquipBest     = false,
+        AutoBuyPickaxes   = false,
+        SelectedPickaxes  = { ["Sapphire"] = true, ["Sapphire Quartz"] = true },
+        AutoUpgradeMiners = false,
+        SelectedMinerStats= { ["Damage"] = true, ["Speed"] = true, ["Mining Speed"] = true },
+        StrictBestMinerFirst = false,
+        AutoUnlockZones   = false,
+        LowCpuMode        = false,
+        AntiAFK           = true,
+        TotalProfit       = 0
+    }
+    _G.RelwxMineState = FarmState
+    local function waitWhileActive(duration, featureName)
+        if featureName and not FarmState[featureName] then
+            task.wait(0.35)
+            return false
+        end
+        local t = 0
+        duration = duration or 0.35
+        while t < duration do
+            if not _G.RelwxMineRunning or _G.RelwxMineActiveToken ~= myToken then return false end
+            if featureName and not FarmState[featureName] then return false end
+            task.wait(0.08)
+            t = t + 0.08
+        end
+        return (_G.RelwxMineRunning and _G.RelwxMineActiveToken == myToken and (not featureName or FarmState[featureName]))
+    end
+    task.spawn(function()
+        while _G.RelwxMineRunning and _G.RelwxMineActiveToken == myToken do
+            if FarmState.AutoClickNodes then
+                local plot = getMyPlot()
+                if plot and plot:FindFirstChild("Nodes") then
+                    for _, node in ipairs(plot.Nodes:GetChildren()) do
+                        if not FarmState.AutoClickNodes or not _G.RelwxMineRunning or _G.RelwxMineActiveToken ~= myToken then break end
+                        local cd = node:FindFirstChildWhichIsA("ClickDetector", true)
+                        if cd then
+                            pcall(fireclickdetector, cd)
+                        end
+                    end
+                end
+            end
+            waitWhileActive(FarmState.ClickDelay, "AutoClickNodes")
+        end
+    end)
+    task.spawn(function()
+        while _G.RelwxMineRunning and _G.RelwxMineActiveToken == myToken do
+            if FarmState.AutoTakeAndSell then
+                local plot = getMyPlot()
+                local char = LocalPlayer.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                local chest = plot and plot:FindFirstChild("Chest")
+                local stand = workspace:FindFirstChild("SellStand")
+                if hrp and hum and hum.Health > 0 and chest and stand and GameState then
+                    local oldCF = hrp.CFrame
+                    local beforeMoney = (GameState.GetData2() and GameState.GetData2().Money) or 0
+                    if not FarmState.AutoTakeAndSell or not _G.RelwxMineRunning or _G.RelwxMineActiveToken ~= myToken then
+                        task.wait(0.3)
+                        continue
+                    end
+                    hrp.CFrame = chest:GetPivot() + Vector3.new(0, 3, 0)
+                    task.wait(0.25)
+                    GameState.SendEvent("MineTakeChest")
+                    task.wait(0.35)
+                    if not FarmState.AutoTakeAndSell or not _G.RelwxMineRunning or _G.RelwxMineActiveToken ~= myToken then
+                        local c = LocalPlayer.Character
+                        local h = c and c:FindFirstChild("HumanoidRootPart")
+                        if h then h.CFrame = oldCF end
+                        task.wait(0.3)
+                        continue
+                    end
+                    hrp.CFrame = stand:GetPivot() + Vector3.new(0, 3, 5)
+                    task.wait(0.25)
+                    local data = GameState.GetData2()
+                    local ores = data and data.MineGame and data.MineGame.Ores
+                    if ores then
+                        local keys = {}
+                        for k, v in pairs(ores) do
+                            if v > 0 then
+                                table.insert(keys, k)
+                            end
+                        end
+                        if #keys > 0 then
+                            GameState.SendEvent("MineSellItems", keys)
+                            task.wait(0.4)
+                        end
+                    end
+                    local currentChar = LocalPlayer.Character
+                    local currentHrp = currentChar and currentChar:FindFirstChild("HumanoidRootPart")
+                    if currentHrp then
+                        currentHrp.CFrame = oldCF
+                    end
+                    local afterMoney = (GameState.GetData2() and GameState.GetData2().Money) or beforeMoney
+                    local earned = afterMoney - beforeMoney
+                    if earned > 0 then
+                        FarmState.TotalProfit = FarmState.TotalProfit + earned
+                    end
+                end
+            end
+            waitWhileActive(FarmState.SellInterval, "AutoTakeAndSell")
+        end
+    end)
+    local function getRankedMiners()
+        if not GameState or not MineConfig then return {}, 0 end
+        if not Items then
+            pcall(function() Items = require(ReplicatedStorage.Modules.Items) end)
+        end
+        local d = GameState.GetData2()
+        local mg = d and d.MineGame
+        local holders = mg and mg.Holders or {}
+        local myMoney = d and d.Money or 0
+        local ranked = {}
+        for k, v in pairs(holders) do
+            if v.CharName then
+                local item = Items and Items.GetItemData and Items.GetItemData(v.CharName)
+                local baseDmg = item and MineConfig.GetHolderBaseDamage(v, item) or 0
+                local varMult = MineConfig.GetVariantMult(MineConfig.GetHolderVariant(v))
+                local pickMult = (MineConfig.GetHolderPickaxe(v)).Multiplier or 1
+                local lvlMult = MineConfig.GetCharacterLevelMultiplier(MineConfig.GetHolderLevel(v))
+                local totalDmg = baseDmg * varMult * pickMult * lvlMult
+                local dmgLvl = MineConfig.GetHolderLevel(v)
+                local maxDmgLvl = (item and Items and Items.GetItemData) and (MineConfig.GetCharLevelCap(mg, k, v, item, Items.GetItemData) or 100) or 100
+                local spdLvl = MineConfig.GetHolderSpeedLevel(v)
+                local maxSpdLvl = MineConfig.CharSpeedMaxLevel or 17
+                local mineLvl = MineConfig.GetHolderMineSpeedLevel(v)
+                local maxMineLvl = MineConfig.CharMineSpeedMaxLevel or 16
+                local dmgCost = (dmgLvl >= maxDmgLvl) and math.huge or (MineConfig.GetCharacterUpgradeCost(dmgLvl, item) or math.huge)
+                local spdCost = (spdLvl >= maxSpdLvl) and math.huge or (MineConfig.GetCharacterSpeedUpgradeCost(spdLvl, item) or math.huge)
+                local mineCost = (mineLvl >= maxMineLvl) and math.huge or (MineConfig.GetCharacterMineSpeedUpgradeCost(mineLvl, item) or math.huge)
+                table.insert(ranked, {
+                    key = k,
+                    char = v.CharName,
+                    variant = MineConfig.GetHolderVariant(v),
+                    baseDmg = baseDmg,
+                    totalDmg = totalDmg,
+                    dmgLvl = dmgLvl,
+                    maxDmgLvl = maxDmgLvl,
+                    dmgCost = dmgCost,
+                    spdLvl = spdLvl,
+                    maxSpdLvl = maxSpdLvl,
+                    spdCost = spdCost,
+                    mineLvl = mineLvl,
+                    maxMineLvl = maxMineLvl,
+                    mineCost = mineCost,
+                })
+            end
+        end
+        table.sort(ranked, function(a, b)
+            if a.baseDmg ~= b.baseDmg then
+                return a.baseDmg > b.baseDmg
+            end
+            return a.totalDmg > b.totalDmg
+        end)
+        return ranked, myMoney
+    end
+    local function isStatSelected(statKey)
+        if not FarmState.SelectedMinerStats or next(FarmState.SelectedMinerStats) == nil then
+            return true
+        end
+        statKey = statKey:lower()
+        for k, v in pairs(FarmState.SelectedMinerStats) do
+            if v == true then
+                local kl = k:lower()
+                if statKey == "damage" and kl:find("damage") then
+                    return true
+                elseif statKey == "speed" and kl:find("speed") and not kl:find("mining") and not kl:find("mine") then
+                    return true
+                elseif (statKey == "miningspeed" or statKey == "minespeed" or statKey == "mining") and (kl:find("mining") or kl:find("minespeed")) then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+    task.spawn(function()
+        while _G.RelwxMineRunning and _G.RelwxMineActiveToken == myToken do
+            if FarmState.AutoEquipBest and GameState then
+                pcall(function()
+                    GameState.SendEvent("MineEquipBest")
+                end)
+            end
+            waitWhileActive(12.0, "AutoEquipBest")
+        end
+    end)
+    task.spawn(function()
+        while _G.RelwxMineRunning and _G.RelwxMineActiveToken == myToken do
+            if FarmState.AutoSweepLoot then
+                local plot = getMyPlot()
+                local char = LocalPlayer.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if plot and plot:FindFirstChild("Loot") and hrp then
+                    for _, drop in ipairs(plot.Loot:GetChildren()) do
+                        if not FarmState.AutoSweepLoot or not _G.RelwxMineRunning or _G.RelwxMineActiveToken ~= myToken then break end
+                        for _, p in ipairs(drop:GetDescendants()) do
+                            if p:IsA("BasePart") and p:FindFirstChildOfClass("TouchTransmitter") then
+                                pcall(function()
+                                    firetouchinterest(hrp, p, 0)
+                                    task.wait(0.02)
+                                    firetouchinterest(hrp, p, 1)
+                                end)
+                            end
+                        end
+                    end
+                end
+            end
+            waitWhileActive(1.5, "AutoSweepLoot")
+        end
+    end)
+    task.spawn(function()
+        while _G.RelwxMineRunning and _G.RelwxMineActiveToken == myToken do
+            if (FarmState.AutoBuySkills or FarmState.AutoCoreUpgrades) and GameState and MineConfig then
+                local d = GameState.GetData2()
+                local mg = d and d.MineGame
+                if mg and d.Money then
+                    if FarmState.AutoBuySkills then
+                        local unlocked = {}
+                        if mg.UnlockedZones then
+                            for zk, u in pairs(mg.UnlockedZones) do
+                                if u then unlocked[zk] = true end
+                            end
+                        end
+                        unlocked["Z1"] = true
+                        if mg.CurrentZone then
+                            unlocked["Z" .. tostring(mg.CurrentZone)] = true
+                        end
+                        for zoneKey, _ in pairs(unlocked) do
+                            if not FarmState.AutoBuySkills or not _G.RelwxMineRunning or _G.RelwxMineActiveToken ~= myToken then break end
+                            local nodes = MineConfig.GetSkillNodes(zoneKey)
+                            local skills = mg.Skills and mg.Skills[zoneKey] or {}
+                            if nodes then
+                                for _, node in ipairs(nodes) do
+                                    if not FarmState.AutoBuySkills or not _G.RelwxMineRunning or _G.RelwxMineActiveToken ~= myToken then break end
+                                    if not MineConfig.IsSkillNodeMaxed(skills, node) and MineConfig.IsSkillNodeOpen(skills, node) then
+                                        local cost = MineConfig.GetSkillCost(zoneKey, skills[node.Family] or 0, node.Family)
+                                        if cost and d.Money >= cost then
+                                            GameState.SendEvent("MineBuySkill", zoneKey, node.Family, node.Id)
+                                            task.wait(0.12)
+                                            d = GameState.GetData2()
+                                            if not d or not d.Money then break end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    if FarmState.AutoCoreUpgrades and d and d.Money then
+                        local currentTap = mg.TapLevel or 1
+                        local maxTap = MineConfig.TapMaxLevel or 36
+                        if currentTap < maxTap and MineConfig.GetTapUpgradeCost then
+                            local tapCost = MineConfig.GetTapUpgradeCost(currentTap)
+                            if tapCost and d.Money >= tapCost then
+                                GameState.SendEvent("MineUpgradeTap")
+                                task.wait(0.1)
+                                d = GameState.GetData2()
+                            end
+                        end
+                        local currentSlots = mg.MinerSlots or 5
+                        local maxSlots = MineConfig.MaxMinerSlots or 8
+                        if currentSlots < maxSlots and MineConfig.MinerSlotCosts then
+                            local slotCost = MineConfig.MinerSlotCosts[currentSlots + 1]
+                            if slotCost and d.Money and d.Money >= slotCost then
+                                GameState.SendEvent("MineBuyMinerSlot")
+                                task.wait(0.1)
+                            end
+                        end
+                    end
+                end
+            end
+            waitWhileActive(3.5)
+        end
+    end)
+    task.spawn(function()
+        while _G.RelwxMineRunning and _G.RelwxMineActiveToken == myToken do
+            if FarmState.AutoClaimRewards and Remotes then
+                pcall(function()
+                    if Remotes:FindFirstChild("ClaimGroupRewards") then
+                        Remotes.ClaimGroupRewards:FireServer()
+                    end
+                    if Remotes:FindFirstChild("ClaimOil") then
+                        Remotes.ClaimOil:FireServer()
+                    end
+                    if Remotes:FindFirstChild("ClaimWorth") then
+                        Remotes.ClaimWorth:FireServer()
+                    end
+                    if Remotes:FindFirstChild("CollectAll") then
+                        Remotes.CollectAll:FireServer()
+                    end
+                    if Remotes:FindFirstChild("CollectFromStore") then
+                        Remotes.CollectFromStore:FireServer()
+                    end
+                end)
+            end
+            waitWhileActive(12.0, "AutoClaimRewards")
+        end
+    end)
+    local function getPickaxeShopPos()
+        local pStand = workspace:FindFirstChild("PickaxesStand")
+        local skel = pStand and pStand:FindFirstChild("SkeletonMiner")
+        local torso = skel and (skel:FindFirstChild("UpperTorso") or skel:FindFirstChild("HumanoidRootPart") or skel:FindFirstChildWhichIsA("BasePart"))
+        if torso then return torso.Position end
+        return Vector3.new(-6021.988, 503.625, -6000.352)
+    end
+    local function isPickaxeSelected(pickName)
+        if not FarmState.SelectedPickaxes or next(FarmState.SelectedPickaxes) == nil then
+            return false
+        end
+        if FarmState.SelectedPickaxes[pickName] == true then return true end
+        local cleanName = pickName:gsub("%s*Pickaxe%s*", ""):gsub("^%s*(.-)%s*$", "%1")
+        if FarmState.SelectedPickaxes[cleanName] == true then return true end
+        for selName, isSel in pairs(FarmState.SelectedPickaxes) do
+            if isSel == true then
+                local cleanSel = selName:gsub("%s*Pickaxe%s*", ""):gsub("^%s*(.-)%s*$", "%1")
+                if cleanSel:lower() == cleanName:lower() or cleanName:lower():find(cleanSel:lower()) then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+    task.spawn(function()
+        while _G.RelwxMineRunning and _G.RelwxMineActiveToken == myToken do
+            if FarmState.AutoBuyPickaxes and GameState and MineConfig then
+                pcall(function()
+                    if not MineStock then
+                        pcall(function() MineStock = require(ReplicatedStorage.Modules.MineStock) end)
+                    end
+                    local d = GameState.GetData2()
+                    local mg = d and d.MineGame
+                    local unlocked = mg and mg.UnlockedZones or {}
+                    local money = tonumber(d.Money) or 0
+                    local toBuy = {}
+                    for i = #MineConfig.Pickaxes, 1, -1 do
+                        local p = MineConfig.Pickaxes[i]
+                        if p and isPickaxeSelected(p.Name) then
+                            local isZoneUnlocked = (p.ZoneReq == "Z1") or (unlocked[p.ZoneReq] == true)
+                            local cost = tonumber(p.Cost) or 0
+                            if isZoneUnlocked and money >= cost then
+                                local rem = (MineStock and MineStock.GetRemaining) and MineStock.GetRemaining(d, p.Name)
+                                local inStock = (rem == nil) or (rem > 0)
+                                if inStock then
+                                    table.insert(toBuy, { idx = i, name = p.Name, cost = cost })
+                                end
+                            end
+                        end
+                    end
+                    if #toBuy > 0 then
+                        local char = LocalPlayer.Character
+                        local root = char and char:FindFirstChild("HumanoidRootPart")
+                        if root then
+                            local origCF = root.CFrame
+                            local shopPos = getPickaxeShopPos()
+                            root.CFrame = CFrame.new(shopPos + Vector3.new(0, 2.5, 3.5))
+                            task.wait(0.2)
+                            local boughtAny = false
+                            for _, item in ipairs(toBuy) do
+                                if money >= item.cost then
+                                    GameState.SendEvent("MineBuyPickaxe", item.idx)
+                                    money = money - item.cost
+                                    boughtAny = true
+                                    task.wait(0.18)
+                                end
+                            end
+                            task.wait(0.15)
+                            if root and origCF then
+                                root.CFrame = origCF
+                            end
+                            if boughtAny then Toast("ซื้ออีเตอร์สำเร็จ") end
+                        end
+                    end
+                end)
+            end
+            waitWhileActive(5.0, "AutoBuyPickaxes")
+        end
+    end)
+    task.spawn(function()
+        while _G.RelwxMineRunning and _G.RelwxMineActiveToken == myToken do
+            if FarmState.AutoUnlockZones and GameState and MineConfig then
+                pcall(function()
+                    local d = GameState.GetData2()
+                    local mg = d and d.MineGame
+                    local unlocked = mg and mg.UnlockedZones or {}
+                    local money = tonumber(d.Money) or 0
+                    for i, zk in ipairs(MineConfig.ZoneKeys) do
+                        if not unlocked[zk] then
+                            local zDef = MineConfig.Zones[zk]
+                            local cost = tonumber(zDef and zDef.UnlockCost) or 0
+                            local prevKey = (i > 1) and MineConfig.ZoneKeys[i-1] or nil
+                            local prevDone = true
+                            if prevKey then
+                                local prevNodes = MineConfig.GetSkillNodes(prevKey)
+                                local prevSkills = mg and mg.Skills and mg.Skills[prevKey] or {}
+                                if prevNodes then
+                                    for _, n in ipairs(prevNodes) do
+                                        if not MineConfig.IsSkillNodeMaxed(prevSkills, n) then
+                                            prevDone = false
+                                            break
+                                        end
+                                    end
+                                end
+                            end
+                            if prevDone and money >= cost then
+                                GameState.SendEvent("MineSelectZone", zk)
+                                task.wait(0.5)
+                            end
+                            break
+                        end
+                    end
+                end)
+            end
+            waitWhileActive(4.0, "AutoUnlockZones")
+        end
+    end)
+    task.spawn(function()
+        while _G.RelwxMineRunning and _G.RelwxMineActiveToken == myToken do
+            task.wait(60)
+            pcall(collectgarbage, "collect")
+        end
+    end)
+
+    --==================================================
+    -- Anti-AFK
+    --==================================================
+    local function antiAfkPulse()
+        pcall(function()
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new(0, 0))
+        end)
+    end
+    pcall(function()
+        trackConn(LocalPlayer.Idled:Connect(function()
+            if FarmState.AntiAFK then
+                antiAfkPulse()
+            end
+        end))
+    end)
+    task.spawn(function()
+        while alive() do
+            task.wait(240)
+            if FarmState.AntiAFK then
+                antiAfkPulse()
+            end
+        end
+    end)
+
+    --==================================================
+    -- AUTO UPGRADE MINERS LOOP
+    --==================================================
+    local function upgradeMiner(m, money)
+        local n = 0
+        if isStatSelected("Speed") and m.spdLvl < m.maxSpdLvl and money >= m.spdCost then
+            GameState.SendEvent("MineUpgradeCharacter", m.key, "Speed")
+            money = money - m.spdCost
+            n = n + 1
+            task.wait(0.08)
+        end
+        if isStatSelected("Mining Speed") and m.mineLvl < m.maxMineLvl and money >= m.mineCost then
+            GameState.SendEvent("MineUpgradeCharacter", m.key, "MineSpeed")
+            money = money - m.mineCost
+            n = n + 1
+            task.wait(0.08)
+        end
+        if isStatSelected("Damage") and m.dmgLvl < m.maxDmgLvl and money >= m.dmgCost then
+            GameState.SendEvent("MineUpgradeCharacter", m.key, "Damage")
+            money = money - m.dmgCost
+            n = n + 1
+            task.wait(0.08)
+        end
+        return n, money
+    end
+
+    local function selectedMaxed(m)
+        if isStatSelected("Speed") and m.spdLvl < m.maxSpdLvl then
+            return false
+        end
+        if isStatSelected("Mining Speed") and m.mineLvl < m.maxMineLvl then
+            return false
+        end
+        if isStatSelected("Damage") and m.dmgLvl < m.maxDmgLvl then
+            return false
+        end
+        return true
+    end
+
+    task.spawn(function()
+        while alive() do
+            if FarmState.AutoUpgradeMiners and GameState and MineConfig then
+                pcall(function()
+                    local ranked, money = getRankedMiners()
+                    for _, m in ipairs(ranked) do
+                        if not FarmState.AutoUpgradeMiners or not alive() then
+                            break
+                        end
+                        local n
+                        n, money = upgradeMiner(m, money)
+                        if FarmState.StrictBestMinerFirst and not selectedMaxed(m) then
+                            break
+                        end
+                    end
+                end)
+            end
+            waitWhileActive(2.5, "AutoUpgradeMiners")
+        end
+    end)
+
+    --==================================================
+    -- UI COMPONENTS (Button / Paragraph / Dropdown)
+    --==================================================
+    local function formatCash(n)
+        n = tonumber(n) or 0
+        local units = {
+            { 1e33, "Dc" }, { 1e30, "No" }, { 1e27, "Oc" }, { 1e24, "Sp" }, { 1e21, "Sx" },
+            { 1e18, "Qi" }, { 1e15, "Qa" }, { 1e12, "T" }, { 1e9, "B" }, { 1e6, "M" }, { 1e3, "K" },
+        }
+        for _, u in ipairs(units) do
+            if n >= u[1] then
+                return string.format("%.2f%s", n / u[1], u[2])
+            end
+        end
+        return tostring(math.floor(n))
+    end
+
+    local function Button(page, opts)
+        local row = Panel(page, UDim2.new(1, 0, 0, 60), "TextButton")
+        HoverRow(row)
+        Register(row, opts.title .. " " .. (opts.desc or ""))
+
+        local title = Text(row, opts.title, 14, FNT.B, opts.danger and RGB(235, 90, 100) or "Text")
+        title.Position = UDim2.fromOffset(18, 10)
+        title.Size = UDim2.new(1, -110, 0, 20)
+
+        local desc = Text(row, opts.desc or "", 12, FNT.R, "Sub")
+        desc.Position = UDim2.fromOffset(18, 32)
+        desc.Size = UDim2.new(1, -110, 0, 18)
+
+        local pill = New("Frame", {
+            Size = UDim2.fromOffset(60, 26),
+            AnchorPoint = Vector2.new(1, 0.5),
+            Position = UDim2.new(1, -16, 0.5, 0),
+            BorderSizePixel = 0,
+        }, row)
+        Corner(pill, 13)
+        Bind(pill, "BackgroundColor3", "Accent")
+        local pt = Text(pill, opts.label or "กด", 12, FNT.B, "OnAccent", Enum.TextXAlignment.Center)
+        pt.Size = UDim2.fromScale(1, 1)
+
+        row.MouseButton1Click:Connect(function()
+            PlayToggleSound(true)
+            Tween(pill, 0.1, { Size = UDim2.fromOffset(54, 24) })
+            task.delay(0.1, function()
+                Tween(pill, 0.15, { Size = UDim2.fromOffset(60, 26) })
+            end)
+            if opts.callback then
+                task.spawn(opts.callback)
+            end
+        end)
+        return row
+    end
+
+    local function Paragraph(page, title, desc, reg)
+        local row = Panel(page, UDim2.new(1, 0, 0, 64))
+        if reg then
+            Register(row, title)
+        end
+        local t = Text(row, title, 13, FNT.B, "Text")
+        t.Position = UDim2.fromOffset(18, 10)
+        t.Size = UDim2.new(1, -36, 0, 20)
+        local d = Text(row, desc, 12, FNT.R, "Sub")
+        d.Position = UDim2.fromOffset(18, 33)
+        d.Size = UDim2.new(1, -36, 0, 20)
+        return {
+            Row = row,
+            SetTitle = function(_, s)
+                t.Text = s
+            end,
+            SetDesc = function(_, s)
+                d.Text = s
+            end,
+        }
+    end
+
+    local function SplitSel(str)
+        local m = {}
+        for name in string.gmatch(tostring(str or ""), "[^|]+") do
+            m[name] = true
+        end
+        return m
+    end
+
+    local function JoinSel(values, m)
+        local t = {}
+        for _, v in ipairs(values) do
+            if m[v] then
+                t[#t + 1] = v
+            end
+        end
+        return table.concat(t, "|")
+    end
+
+    local function Dropdown(page, opts)
+        local values = opts.values
+        local listH = math.ceil(#values / 3) * 36 + 10
+
+        local row = Panel(page, UDim2.new(1, 0, 0, 64))
+        row.ClipsDescendants = true
+        Register(row, opts.title .. " " .. (opts.desc or ""))
+
+        local head = New("TextButton", {
+            Size = UDim2.new(1, 0, 0, 64),
+            BackgroundTransparency = 1,
+            Text = "",
+            AutoButtonColor = false,
+        }, row)
+
+        local title = Text(head, opts.title, 14, FNT.B, "Text")
+        title.Position = UDim2.fromOffset(18, 11)
+        title.Size = UDim2.new(1, -130, 0, 20)
+        local desc = Text(head, opts.desc or "", 12, FNT.R, "Sub")
+        desc.Position = UDim2.fromOffset(18, 33)
+        desc.Size = UDim2.new(1, -130, 0, 18)
+
+        local pill = New("Frame", {
+            Size = UDim2.fromOffset(92, 26),
+            AnchorPoint = Vector2.new(1, 0.5),
+            Position = UDim2.new(1, -16, 0.5, 0),
+            BorderSizePixel = 0,
+        }, head)
+        Corner(pill, 13)
+        Bind(pill, "BackgroundColor3", "Surface2")
+        Bind(Stroke(pill, Theme.Accent, 1, 0.5), "Color", "Accent")
+        local cnt = Text(pill, "", 12, FNT.B, "Accent", Enum.TextXAlignment.Center)
+        cnt.Size = UDim2.fromScale(1, 1)
+
+        local holder = New("Frame", {
+            Size = UDim2.new(1, -24, 0, listH - 10),
+            Position = UDim2.fromOffset(12, 68),
+            BackgroundTransparency = 1,
+        }, row)
+        New("UIGridLayout", {
+            CellSize = UDim2.new(1 / 3, -6, 0, 30),
+            CellPadding = UDim2.fromOffset(6, 6),
+            SortOrder = Enum.SortOrder.LayoutOrder,
+        }, holder)
+
+        local sel = SplitSel(Config[opts.key])
+        local cells = {}
+
+        local function snapshot()
+            local c = {}
+            for k, v in pairs(sel) do
+                c[k] = v
+            end
+            return c
+        end
+
+        local function render()
+            local n = 0
+            for name, c in pairs(cells) do
+                local on = sel[name] == true
+                if on then
+                    n = n + 1
+                end
+                c.BackgroundColor3 = on and Theme.Accent or Theme.Surface2
+                c.TextColor3 = on and Theme.OnAccent or Theme.Sub
+            end
+            cnt.Text = "เลือก " .. n
+        end
+
+        for i, name in ipairs(values) do
+            local c = New("TextButton", {
+                BorderSizePixel = 0,
+                Text = name,
+                TextSize = 11,
+                Font = FNT.M,
+                AutoButtonColor = false,
+                LayoutOrder = i,
+                TextTruncate = Enum.TextTruncate.AtEnd,
+            }, holder)
+            Corner(c, 10)
+            cells[name] = c
+            c.MouseButton1Click:Connect(function()
+                sel[name] = (not sel[name]) or nil
+                render()
+                SetConfig(opts.key, JoinSel(values, sel))
+                PlayToggleSound(sel[name] == true)
+                if opts.callback then
+                    task.spawn(opts.callback, snapshot())
+                end
+            end)
+        end
+        OnTheme(render)
+
+        local open = false
+        head.MouseButton1Click:Connect(function()
+            open = not open
+            Tween(row, 0.25, { Size = UDim2.new(1, 0, 0, open and (64 + listH) or 64) }, Enum.EasingStyle.Quint)
+        end)
+
+        local function setAll(on)
+            sel = {}
+            if on then
+                for _, v in ipairs(values) do
+                    sel[v] = true
+                end
+            end
+            render()
+            SetConfig(opts.key, JoinSel(values, sel))
+            if opts.callback then
+                task.spawn(opts.callback, snapshot())
+            end
+        end
+
+        Refreshers[#Refreshers + 1] = function()
+            sel = SplitSel(Config[opts.key])
+            render()
+            if opts.callback then
+                task.spawn(opts.callback, snapshot())
+            end
+        end
+
+        if opts.callback then
+            task.defer(opts.callback, snapshot())
+        end
+
+        return {
+            Get = snapshot,
+            SelectAll = function()
+                setAll(true)
+            end,
+            Clear = function()
+                setAll(false)
+            end,
+        }
+    end
+
+    --==================================================
+    -- PAGES
+    --==================================================
+    local Upgrade = MakePage("Upgrade", "อัพเกรด & สกิลทรี", "ซื้อสกิลอัตโนมัติ  •  อัพเกรด Core")
+    local Teleport = MakePage("Teleport", "วาร์ป & โซน", "ปลดล็อคโซน  •  วาร์ปไปจุดสำคัญ")
+    local FarmSys = MakePage("FarmSys", "ระบบฟาร์ม", "กันหลุด  •  ประหยัดทรัพยากร")
+
+    local T = {}
+    local MasterChildren = {
+        "AutoClickNodes", "AutoTakeAndSell", "AutoSweepLoot", "AutoBuySkills", "AutoCoreUpgrades",
+        "AutoClaimRewards", "AutoEquipBest", "AutoBuyPickaxes", "AutoUnlockZones", "AutoUpgradeMiners",
+    }
+    local masterReady = false
+    task.delay(1.5, function()
+        masterReady = true
+    end)
+
+    local function simpleToggle(page, key, title, desc)
+        T[key] = Toggle(page, {
+            key = key,
+            title = title,
+            desc = desc,
+            callback = function(v)
+                FarmState[key] = v
+            end,
+        })
+    end
+
+    -- ---------------- helper actions ----------------
+    local function burstStrike()
+        local plot = getMyPlot()
+        if plot and plot:FindFirstChild("Nodes") then
+            task.spawn(function()
+                for _ = 1, 25 do
+                    for _, node in ipairs(plot.Nodes:GetChildren()) do
+                        local cd = node:FindFirstChildWhichIsA("ClickDetector", true)
+                        if cd then
+                            pcall(fireclickdetector, cd)
+                        end
+                    end
+                    task.wait(0.04)
+                end
+            end)
+            Toast("ตีหินทุกโหนด 25 ครั้งแล้ว")
+        else
+            Toast("ไม่พบแปลงของคุณ")
+        end
+    end
+
+    local function sellAllNow()
+        local plot = getMyPlot()
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local chest = plot and plot:FindFirstChild("Chest")
+        local stand = workspace:FindFirstChild("SellStand")
+        if not (hrp and chest and stand and GameState) then
+            Toast("ยังไม่พร้อม (ไม่พบหีบ/จุดขาย)")
+            return
+        end
+        task.spawn(function()
+            local oldCF = hrp.CFrame
+            local beforeMoney = (GameState.GetData2() and GameState.GetData2().Money) or 0
+            hrp.CFrame = chest:GetPivot() + Vector3.new(0, 3, 0)
+            task.wait(0.25)
+            GameState.SendEvent("MineTakeChest")
+            task.wait(0.35)
+            hrp.CFrame = stand:GetPivot() + Vector3.new(0, 3, 5)
+            task.wait(0.25)
+            local data = GameState.GetData2()
+            local ores = data and data.MineGame and data.MineGame.Ores
+            if ores then
+                local keys = {}
+                for k, v in pairs(ores) do
+                    if v > 0 then
+                        table.insert(keys, k)
+                    end
+                end
+                if #keys > 0 then
+                    GameState.SendEvent("MineSellItems", keys)
+                    task.wait(0.4)
+                end
+            end
+            hrp.CFrame = oldCF
+            local afterMoney = (GameState.GetData2() and GameState.GetData2().Money) or beforeMoney
+            Toast("ขายสำเร็จ +$" .. formatCash(afterMoney - beforeMoney))
+        end)
+    end
+
+    local function upgradeBestNow()
+        if not (GameState and MineConfig) then
+            return
+        end
+        task.spawn(function()
+            local ranked, myMoney = getRankedMiners()
+            local top = ranked and ranked[1]
+            if not top then
+                Toast("ไม่พบคนขุด กรุณาติดตั้งคนขุดบนแท่นก่อน")
+                return
+            end
+            local n = upgradeMiner(top, myMoney)
+            if n > 0 then
+                Toast(string.format("อัพเกรด %s (%s) %d รายการ", top.char, top.key, n))
+            else
+                Toast("อัพเกรดไม่ได้ (เงินไม่พอ หรือสแตทตันแล้ว)")
+            end
+        end)
+    end
+
+    local function buyPickaxes(showMsg)
+        if not (GameState and MineConfig) then
+            return 0
+        end
+        if not MineStock then
+            pcall(function()
+                MineStock = require(ReplicatedStorage.Modules.MineStock)
+            end)
+        end
+        local d = GameState.GetData2()
+        local mg = d and d.MineGame
+        local unlocked = mg and mg.UnlockedZones or {}
+        local money = tonumber(d and d.Money) or 0
+        local toBuy = {}
+        for i = #MineConfig.Pickaxes, 1, -1 do
+            local p = MineConfig.Pickaxes[i]
+            if p and isPickaxeSelected(p.Name) then
+                local zoneOk = (p.ZoneReq == "Z1") or (unlocked[p.ZoneReq] == true)
+                local cost = tonumber(p.Cost) or 0
+                if zoneOk and money >= cost then
+                    local rem = (MineStock and MineStock.GetRemaining) and MineStock.GetRemaining(d, p.Name)
+                    if rem == nil or rem > 0 then
+                        table.insert(toBuy, { idx = i, name = p.Name, cost = cost })
+                    end
+                end
+            end
+        end
+        if #toBuy == 0 then
+            if showMsg then
+                Toast("ซื้อไม่ได้ (หมดสต็อก / โซนยังไม่ปลดล็อค / เงินไม่พอ)")
+            end
+            return 0
+        end
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if not root then
+            return 0
+        end
+        local origCF = root.CFrame
+        root.CFrame = CFrame.new(getPickaxeShopPos() + Vector3.new(0, 2.5, 3.5))
+        task.wait(0.2)
+        local count = 0
+        for _, item in ipairs(toBuy) do
+            if money >= item.cost then
+                GameState.SendEvent("MineBuyPickaxe", item.idx)
+                money = money - item.cost
+                count = count + 1
+                task.wait(0.18)
+            end
+        end
+        task.wait(0.15)
+        root.CFrame = origCF
+        if showMsg then
+            Toast("ส่งคำขอซื้ออีเตอร์ " .. count .. " รายการ")
+        end
+        return count
+    end
+
+    local function tpTo(label, getTarget, offset)
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local target = getTarget()
+        if hrp and target then
+            hrp.CFrame = target:GetPivot() + offset
+            Toast("วาร์ปไป" .. label .. "แล้ว")
+        else
+            Toast("ไม่พบ" .. label)
+        end
+    end
+
+    -- ============ PAGE: ฟาร์มแร่ & คนขุด ============
+    Section(Functions, "ออโต้ไก่ตัน")
+    T.MasterAFK = Toggle(Functions, {
+        key = "MasterAFK",
+        title = "ออโต้ไก่ตัน (ทำให้ทุกอย่าง)",
+        desc = "เปิดทุกระบบให้ฟาร์ม อัพเกรด และปลดล็อคจนตันในคลิกเดียว",
+        callback = function(v)
+            FarmState.MasterAFK = v
+            if not masterReady then
+                return
+            end
+            for _, k in ipairs(MasterChildren) do
+                if T[k] then
+                    T[k].Set(v)
+                end
+            end
+            Toast(v and "เปิดออโต้ไก่ตันแล้ว ทำให้ทุกอย่าง" or "ปิดออโต้ไก่ตันแล้ว")
+        end,
+    })
+
+    Section(Functions, "ขุดหินอัตโนมัติ")
+    simpleToggle(Functions, "AutoClickNodes", "Auto ตีหินทุกโหนด", "คลิกตีหินทุกก้อนในแปลงของคุณรัวๆ")
+    Slider(Functions, {
+        key = "ClickDelay",
+        title = "ความเร็วการตีหิน (Hit Delay)",
+        desc = "ระยะหน่วงต่อการตีหนึ่งรอบ (ยิ่งน้อยยิ่งเร็ว)",
+        min = 0.03,
+        max = 0.35,
+        step = 0.01,
+        suffix = " วิ",
+        callback = function(v)
+            FarmState.ClickDelay = v
+        end,
+    })
+    simpleToggle(Functions, "AutoSweepLoot", "Auto เก็บแร่ที่ตกพื้น", "ดูดแร่ที่ตกเกลื่อนตามพื้นแปลงทันที")
+    Button(Functions, {
+        title = "ตีหินทุกโหนดทันที 25 ครั้ง",
+        desc = "Burst Strike — เคาะหินทุกก้อนต่อเนื่องในพริบตา",
+        callback = burstStrike,
+    })
+
+    Section(Functions, "ดูดแร่จากหีบ & ขายอัตโนมัติ")
+    simpleToggle(Functions, "AutoTakeAndSell", "Auto ดูดแร่จากหีบ & วาร์ปไปขาย", "ดูดแร่จาก Chest แล้วไปขายที่ SellStand (ปิดแล้วหยุดทันที)")
+    Slider(Functions, {
+        key = "SellInterval",
+        title = "ระยะห่างรอบการขาย",
+        desc = "ความถี่ในการดูดแร่และไปขาย (5 - 900 วินาที)",
+        min = 5,
+        max = 900,
+        step = 1,
+        suffix = " วิ",
+        callback = function(v)
+            FarmState.SellInterval = v
+        end,
+    })
+    Button(Functions, {
+        title = "ดูดแร่ & ขายทั้งหมดเดี๋ยวนี้",
+        desc = "Sell All Now — วาร์ปดูดแร่และขายทันที 1 รอบ",
+        callback = sellAllNow,
+    })
+
+    Section(Functions, "คนขุด & อัพเกรดตัวดีที่สุด")
+    local minerPara = Paragraph(Functions, "กำลังวิเคราะห์คนขุด...", "กรุณารอสักครู่...", true)
+    simpleToggle(Functions, "AutoEquipBest", "Auto ใส่ตัวที่ดีที่สุดตลอดเวลา", "สแกนและเปลี่ยนเป็นคนขุดที่แรงที่สุดทุก 12 วินาที")
+    Button(Functions, {
+        title = "ใส่ตัวที่ดีที่สุดทันที",
+        desc = "Equip Best Now — ส่งคำขอใส่ตัวที่เก่งที่สุด 1 ครั้ง",
+        callback = function()
+            if GameState then
+                pcall(function()
+                    GameState.SendEvent("MineEquipBest")
+                end)
+                Toast("ส่งคำขอใส่ตัวที่ดีที่สุดแล้ว")
+            end
+        end,
+    })
+    simpleToggle(Functions, "AutoUpgradeMiners", "Auto อัพเกรดคนขุดที่ดีที่สุด", "อัพเกรดคนขุดตามสแตทที่เลือกด้านล่าง")
+    Dropdown(Functions, {
+        key = "SelectedMinerStats",
+        title = "เลือกสแตทที่จะอัพเกรด",
+        desc = "แตะเพื่อเปิดรายการ (เลือกได้หลายอัน)",
+        values = { "Damage", "Speed", "Mining Speed" },
+        callback = function(map)
+            FarmState.SelectedMinerStats = map
+        end,
+    })
+    simpleToggle(Functions, "StrictBestMinerFirst", "เน้นตัวเทพสุดก่อนเสมอ", "รอเงินอัพตัวที่ดีที่สุดให้ตันก่อนอัพตัวถัดไป")
+    Button(Functions, {
+        title = "อัพเกรดคนขุดที่ดีที่สุดทันที",
+        desc = "Upgrade Best Now — อัพสแตทที่เลือกของตัวเทพสุด 1 รอบ",
+        callback = upgradeBestNow,
+    })
+
+    Section(Functions, "ร้านอีเตอร์ & ซื้ออัตโนมัติ")
+    local pickPara = Paragraph(Functions, "กำลังโหลดข้อมูลสต็อกอีเตอร์...", "กรุณารอสักครู่...", true)
+    local pickaxeList = {
+        "Stone", "Iron", "Gold", "Quartz", "Sapphire", "Sapphire Quartz", "Tidehook", "Emerald",
+        "Ruby", "Sunstone", "Riftcleaver", "Topaz", "Dawnwing", "Chrysoberyl", "Sunwheel", "Zircon",
+        "Thundercoil", "Rhodolite", "Heartpiercer", "Anvilheart", "Soulflare", "Lanternfang",
+        "Gloomwing", "Starfall",
+    }
+    local pickDrop = Dropdown(Functions, {
+        key = "SelectedPickaxes",
+        title = "เลือกอีเตอร์ที่ต้องการซื้อ",
+        desc = "แตะเพื่อเปิดรายการ (เลือกได้หลายอัน)",
+        values = pickaxeList,
+        callback = function(map)
+            FarmState.SelectedPickaxes = map
+        end,
+    })
+    simpleToggle(Functions, "AutoBuyPickaxes", "ซื้ออีเตอร์ที่เลือกอัตโนมัติ", "เช็คสต็อกตลอดเวลา ซื้อเฉพาะที่เลือกเมื่อมีของ")
+    Button(Functions, {
+        title = "เลือกอีเตอร์ทั้งหมด",
+        desc = "Select All — ติ๊กอีเตอร์ทุกอันในร้าน",
+        callback = function()
+            pickDrop.SelectAll()
+            Toast("เลือกอีเตอร์ทั้งหมดแล้ว")
+        end,
+    })
+    Button(Functions, {
+        title = "ล้างการเลือกทั้งหมด",
+        desc = "Clear — ยกเลิกการเลือกอีเตอร์ทุกอัน",
+        callback = function()
+            pickDrop.Clear()
+            Toast("ล้างการเลือกอีเตอร์แล้ว")
+        end,
+    })
+    Button(Functions, {
+        title = "กวาดซื้ออีเตอร์ที่เลือกตอนนี้",
+        desc = "Buy Selected Now — วาร์ปไปซื้อทุกเล่มที่เลือก 1 รอบ",
+        callback = function()
+            task.spawn(buyPickaxes, true)
+        end,
+    })
+
+    -- ============ PAGE: อัพเกรด & สกิลทรี ============
+    Section(Upgrade, "ออโต้วิจัยสกิล (Multi-Zone Skill Tree)")
+    simpleToggle(Upgrade, "AutoBuySkills", "Auto ซื้อสกิลทรีประจำโซน", "ไล่ซื้อโหนดสกิลที่เปิดอยู่ทั้งหมดอัตโนมัติ")
+
+    Section(Upgrade, "อัพเกรด Core (พลังแตะ & ช่องคนขุด)")
+    simpleToggle(Upgrade, "AutoCoreUpgrades", "Auto อัพเกรด Core", "ซื้อ Tap Damage และ Miner Slots เมื่อมีเงินพอ")
+    Button(Upgrade, {
+        title = "ซื้อสกิลที่ซื้อได้ทั้งหมดทันที",
+        desc = "Buy All Available — กวาดซื้อสกิลและ Core ที่เงินพอ",
+        callback = function()
+            if not (GameState and MineConfig) then
+                return
+            end
+            task.spawn(function()
+                local d = GameState.GetData2()
+                local mg = d and d.MineGame
+                if mg and d.Money then
+                    local zoneKey = "Z" .. tostring(mg.CurrentZone or 1)
+                    local nodes = MineConfig.GetSkillNodes(zoneKey)
+                    local skills = mg.Skills and mg.Skills[zoneKey] or {}
+                    local count = 0
+                    if nodes then
+                        for _, node in ipairs(nodes) do
+                            if not MineConfig.IsSkillNodeMaxed(skills, node) and MineConfig.IsSkillNodeOpen(skills, node) then
+                                local cost = MineConfig.GetSkillCost(zoneKey, skills[node.Family] or 0, node.Family)
+                                if cost and d.Money >= cost then
+                                    GameState.SendEvent("MineBuySkill", zoneKey, node.Family, node.Id)
+                                    count = count + 1
+                                    task.wait(0.08)
+                                end
+                            end
+                        end
+                    end
+                    GameState.SendEvent("MineUpgradeTap")
+                    GameState.SendEvent("MineBuyMinerSlot")
+                    Toast("ซื้อสกิลที่พร้อมแล้ว " .. count .. " รายการ")
+                end
+            end)
+        end,
+    })
+
+    Section(Upgrade, "รางวัล")
+    simpleToggle(Upgrade, "AutoClaimRewards", "Auto รับรางวัล", "รับรางวัลกลุ่ม / น้ำมัน / Worth / เก็บของจากร้านทุก 12 วินาที")
+
+    -- ============ PAGE: วาร์ป & โซน ============
+    Section(Teleport, "โซน & ปลดล็อคอัตโนมัติ")
+    local zonePara = Paragraph(Teleport, "กำลังดึงข้อมูลโซนและการวิจัย...", "กรุณารอสักครู่...", true)
+    simpleToggle(Teleport, "AutoUnlockZones", "ปลดล็อคโซนอัตโนมัติ", "วิจัยครบและเงินถึงจะปลดล็อค/เปลี่ยนโซนถัดไปทันที")
+    Button(Teleport, {
+        title = "ปลดล็อคโซนถัดไปทันที",
+        desc = "Unlock Next Zone Now — ส่งคำขอปลดล็อคบน Zone Board",
+        callback = function()
+            pcall(function()
+                local d = GameState.GetData2()
+                local mg = d and d.MineGame
+                local unlocked = mg and mg.UnlockedZones or {}
+                local money = tonumber(d.Money) or 0
+                for _, zk in ipairs(MineConfig.ZoneKeys) do
+                    if not unlocked[zk] then
+                        local zDef = MineConfig.Zones[zk]
+                        local cost = tonumber(zDef and zDef.UnlockCost) or 0
+                        local name = zDef and zDef.DisplayName or zk
+                        if money >= cost then
+                            GameState.SendEvent("MineSelectZone", zk)
+                            Toast("ปลดล็อคโซน " .. name .. " สำเร็จ")
+                        else
+                            Toast("เงินไม่พอปลดล็อค " .. name .. " ขาดอีก $" .. formatCash(cost - money))
+                        end
+                        return
+                    end
+                end
+                Toast("ปลดล็อคครบทุกโซนแล้ว")
+            end)
+        end,
+    })
+
+    Section(Teleport, "จุดสำคัญในเกม")
+    Button(Teleport, {
+        title = "วาร์ปไปแปลงของฉัน",
+        desc = "My Plot Spawn",
+        callback = function()
+            tpTo("แปลงของคุณ", function()
+                local plot = getMyPlot()
+                return plot and (plot:FindFirstChild("PlotSpawn") or plot:FindFirstChild("MineFloor"))
+            end, Vector3.new(0, 3, 0))
+        end,
+    })
+    Button(Teleport, {
+        title = "วาร์ปไปหีบเก็บแร่ของแปลง",
+        desc = "Plot Chest",
+        callback = function()
+            tpTo("หีบเก็บแร่", function()
+                local plot = getMyPlot()
+                return plot and plot:FindFirstChild("Chest")
+            end, Vector3.new(0, 3, 0))
+        end,
+    })
+    Button(Teleport, {
+        title = "วาร์ปไปจุดขายแร่",
+        desc = "Sell Stand",
+        callback = function()
+            tpTo("จุดขายแร่", function()
+                return workspace:FindFirstChild("SellStand")
+            end, Vector3.new(0, 3, 5))
+        end,
+    })
+    Button(Teleport, {
+        title = "วาร์ปไปแท่นรับของขวัญกลุ่ม",
+        desc = "Group Rewards Pad",
+        callback = function()
+            tpTo("แท่นของขวัญกลุ่ม", function()
+                local plot = getMyPlot()
+                return plot and plot:FindFirstChild("GroupRewardsPad")
+            end, Vector3.new(0, 3, 0))
+        end,
+    })
+    Button(Teleport, {
+        title = "วาร์ปไปศิลาทดสอบ",
+        desc = "Trial Stone",
+        callback = function()
+            tpTo("ศิลาทดสอบ", function()
+                local plot = getMyPlot()
+                return plot and plot:FindFirstChild("TrialStone")
+            end, Vector3.new(0, 3, 0))
+        end,
+    })
+
+    -- ============ PAGE: ระบบฟาร์ม ============
+    Section(FarmSys, "เสถียรภาพฟาร์มยาว")
+    simpleToggle(FarmSys, "AntiAFK", "ระบบกันเด้ง (Anti-AFK)", "กันหลุดจากการ AFK ตลอดเวลา")
+    T.LowCpuMode = Toggle(FarmSys, {
+        key = "LowCpuMode",
+        title = "โหมดลดการกินแรม/ซีพียู",
+        desc = "ปิดการเรนเดอร์ 3D ประหยัดพลังงานเวลาฟาร์มข้ามคืน",
+        callback = function(v)
+            FarmState.LowCpuMode = v
+            pcall(function()
+                RunService:Set3dRenderingEnabled(not v)
+            end)
+        end,
+    })
+    Button(FarmSys, {
+        title = "ล้างขยะหน่วยความจำทันที",
+        desc = "Clean Memory — สั่งรัน Garbage Collector",
+        callback = function()
+            local before = collectgarbage("count")
+            collectgarbage("collect")
+            Toast("ล้างขยะ RAM แล้ว คืนพื้นที่ " .. math.floor(before - collectgarbage("count")) .. " KB")
+        end,
+    })
+
+    Section(FarmSys, "ปิดสคริปต์")
+    Button(FarmSys, {
+        title = "ปิดสคริปต์ & คืนหน่วยความจำ",
+        desc = "Unload — ปิด UI หยุดทุกลูป และคืนค่าอีเวนต์ทั้งหมด",
+        label = "ปิด",
+        danger = true,
+        callback = function()
+            if _G.RelwxMineCleanup then
+                _G.RelwxMineCleanup()
+            end
+        end,
+    })
+
+    -- ============ HOME: สถานะฟาร์ม ============
+    local homePara = Paragraph(Pages["Home"], "สถานะฟาร์ม", "กำลังโหลด...", false)
+
+    --==================================================
+    -- STATUS LOOP
+    --==================================================
+    local function updateStatus()
+        local d = GameState and GameState.GetData2()
+        local money = d and d.Money or 0
+        local mg = d and d.MineGame
+        local curZ = mg and mg.CurrentZone or 1
+        local zdef = MineConfig and MineConfig.Zones and MineConfig.Zones["Z" .. tostring(curZ)]
+        local zoneName = zdef and zdef.DisplayName or ("Zone " .. tostring(curZ))
+        local highestPick = "-"
+        if mg and mg.Pickaxes then
+            for pName, _ in pairs(mg.Pickaxes) do
+                highestPick = pName
+            end
+        end
+
+        homePara:SetTitle(string.format("เงิน $%s  (+$%s)", formatCash(money), formatCash(FarmState.TotalProfit)))
+        homePara:SetDesc(string.format("โซน: %s  •  อีเตอร์: %s", zoneName, highestPick))
+
+        pcall(function()
+            if MineStock and GameState then
+                local secLeft = MineStock.SecondsLeft and MineStock.SecondsLeft() or 0
+                local timeFmt = MineStock.FormatTime and MineStock.FormatTime(secLeft) or string.format("%ds", secLeft)
+                local selected = 0
+                for _, v in pairs(FarmState.SelectedPickaxes or {}) do
+                    if v == true then
+                        selected = selected + 1
+                    end
+                end
+                pickPara:SetTitle(string.format("ปัจจุบัน: %s | สต็อกรีใน: %s | เลือกไว้: %d เล่ม", highestPick, timeFmt, selected))
+                pickPara:SetDesc("สถานะ: " .. (FarmState.AutoBuyPickaxes and "Auto Buy ทำงาน" or "Auto Buy ปิดอยู่"))
+            end
+        end)
+
+        pcall(function()
+            if MineConfig and GameState then
+                local nextDef, nextCost = nil, 0
+                if mg and mg.UnlockedZones then
+                    for _, zk in ipairs(MineConfig.ZoneKeys) do
+                        if not mg.UnlockedZones[zk] then
+                            nextDef = MineConfig.Zones[zk]
+                            nextCost = tonumber(nextDef and nextDef.UnlockCost) or 0
+                            break
+                        end
+                    end
+                end
+                local nodes = MineConfig.GetSkillNodes("Z" .. tostring(curZ))
+                local skills = mg and mg.Skills and mg.Skills["Z" .. tostring(curZ)] or {}
+                local total, maxed = nodes and #nodes or 0, 0
+                if nodes then
+                    for _, n in ipairs(nodes) do
+                        if MineConfig.IsSkillNodeMaxed(skills, n) then
+                            maxed = maxed + 1
+                        end
+                    end
+                end
+                local pct = total > 0 and math.floor(maxed / total * 100) or 100
+                local nextText = nextDef
+                        and string.format("โซนถัดไป: %s (ราคา $%s)", nextDef.DisplayName, formatCash(nextCost))
+                    or "ปลดล็อคครบทุกโซนแล้ว"
+                local ready = nextDef and ((money >= nextCost) and "  [เงินพร้อมปลดล็อค]" or "  [กำลังสะสมเงิน...]") or ""
+                zonePara:SetTitle(string.format("โซนปัจจุบัน: %s (Z%d)  |  วิจัย: %d%%", zoneName, curZ, pct))
+                zonePara:SetDesc(nextText .. ready)
+
+                local ranked = getRankedMiners()
+                local top = ranked and ranked[1]
+                if top then
+                    local function lv(cur, mx)
+                        return cur >= mx and "MAX" or (tostring(cur) .. "/" .. tostring(mx))
+                    end
+                    local varTag = (top.variant and top.variant ~= "Normal") and (" (" .. top.variant .. ")") or ""
+                    minerPara:SetTitle(string.format("ตัวเทพสุด: %s - %s%s", top.key, top.char, varTag))
+                    minerPara:SetDesc(string.format(
+                        "Damage: %s | Speed: %s | Mining: %s",
+                        lv(top.dmgLvl, top.maxDmgLvl), lv(top.spdLvl, top.maxSpdLvl), lv(top.mineLvl, top.maxMineLvl)
+                    ))
+                else
+                    minerPara:SetTitle("ตัวเทพสุด: ยังไม่พบคนขุด")
+                    minerPara:SetDesc("กรุณาติดตั้งคนขุดบนแท่นขุด")
+                end
+            end
+        end)
+    end
+
+    task.spawn(function()
+        while alive() do
+            pcall(updateStatus)
+            task.wait(0.5)
+        end
+    end)
+
+    print("[RELWX] My Anime Mine functions loaded")
+end)()
+
+
+--==================================================
+-- SETTINGS
+--==================================================
+
+local Settings = MakePage("Settings", "ตั้งค่า", "ปรับแต่งหน้าตา RELWX  •  เปลี่ยนแล้วเซฟทันที")
+
+Section(Settings, "ระบบ")
+
+Toggle(Settings, {
+    key = "SoundEnabled",
+    title = "เสียงตอนเปิด/ปิดฟังก์ชัน",
+    desc = "เล่นเสียงสั้นๆ เมื่อกดสวิตช์",
+})
+
+Toggle(Settings, {
+    key = "StatsVisible",
+    title = "แสดง FPS / MS",
+    desc = "กล่องเล็กลากย้ายตำแหน่งได้",
+    callback = function(v)
+        StatsGui.Enabled = v
+    end,
+})
+
+Slider(Settings, {
+    key = "UIScalePercent",
+    title = "ขนาดหน้าต่าง",
+    desc = "ปรับเพิ่มจากขนาดอัตโนมัติตามหน้าจอ",
+    min = 60,
+    max = 120,
+    step = 5,
+    suffix = "%",
+    callback = function()
+        ApplyScale(true)
+    end,
+})
+
+--==================================================
+-- LANGUAGE  (แปลภาษาทั้ง UI แบบเรียลไทม์)
+--==================================================
+
+;(function()
+    local LANGS = {
+        { "th", "ไทย" },
+        { "en", "English" },
+        { "zh", "中文" },
+        { "ja", "日本語" },
+        { "vi", "Tiếng Việt" },
+    }
+    local IDX = { en = 2, zh = 3, ja = 4, vi = 5 }
+
+    -- { ไทย, English, 中文, 日本語, Tiếng Việt }
+    local ROWS = {
+        { "กำลังบันทึก...", "Saving...", "保存中...", "保存中...", "Đang lưu..." },
+        { "บันทึกแล้ว", "Saved", "已保存", "保存しました", "Đã lưu" },
+        { "บันทึกไม่ได้", "Save failed", "保存失败", "保存できません", "Không lưu được" },
+        { "ไม่รองรับไฟล์", "No file support", "不支持文件", "ファイル非対応", "Không hỗ trợ file" },
+        { "เลือกสี", "Pick color", "选择颜色", "色を選択", "Chọn màu" },
+        { "ธีม theme preset สำเร็จรูป", "Theme presets", "预设主题", "プリセットテーマ", "Giao diện mẫu" },
+        { "ใช้ธีม ", "Theme: ", "主题：", "テーマ: ", "Giao diện: " },
+        { "หน้าหลัก", "Home", "首页", "ホーム", "Trang chủ" },
+        { "ภาพรวมและข้อมูลเซิร์ฟเวอร์", "Overview and server info", "概览与服务器信息", "概要とサーバー情報", "Tổng quan và thông tin máy chủ" },
+        { "กำลังโหลดข้อมูลแมพ...", "Loading map info...", "正在加载地图信息...", "マップ情報を読み込み中...", "Đang tải thông tin bản đồ..." },
+        { "โดย ", "By ", "作者：", "作者: ", "Bởi " },
+        { "ผู้เล่น", "Players", "玩家", "プレイヤー", "Người chơi" },
+        { "เวลาในเซิร์ฟ", "Server time", "在服时间", "サーバー滞在時間", "Thời gian trong server" },
+        { "ประสิทธิภาพ (FPS)", "Performance (FPS)", "性能 (FPS)", "パフォーマンス (FPS)", "Hiệu năng (FPS)" },
+        { "เฉลี่ย ", "Avg ", "平均 ", "平均 ", "TB " },
+        { "อรุณสวัสดิ์", "Good morning", "早上好", "おはようございます", "Chào buổi sáng" },
+        { "สวัสดีตอนบ่าย", "Good afternoon", "下午好", "こんにちは", "Chào buổi chiều" },
+        { "สวัสดีตอนเย็น", "Good evening", "晚上好", "こんばんは", "Chào buổi tối" },
+        { "ราตรีสวัสดิ์", "Good night", "晚安", "おやすみなさい", "Chúc ngủ ngon" },
+        { "ฟาร์มแร่ & คนขุด", "Ore Farm & Miners", "矿石农场与矿工", "鉱石ファーム＆採掘員", "Cày quặng & Thợ mỏ" },
+        { "เปิด / ปิดการใช้งานได้ทันที  •  เซฟอัตโนมัติ", "Toggle instantly  •  Auto-saved", "即时开关  •  自动保存", "すぐにON/OFF  •  自動保存", "Bật/tắt ngay  •  Tự động lưu" },
+        { "ซื้ออีเตอร์สำเร็จ", "Pickaxe purchased", "购买镐成功", "ツルハシを購入しました", "Đã mua cúp" },
+        { "กด", "Tap", "点击", "押す", "Nhấn" },
+        { "เลือก ", "Selected ", "已选 ", "選択 ", "Đã chọn " },
+        { "อัพเกรด & สกิลทรี", "Upgrades & Skill Tree", "升级与技能树", "アップグレード＆スキルツリー", "Nâng cấp & Cây kỹ năng" },
+        { "ซื้อสกิลอัตโนมัติ  •  อัพเกรด Core", "Auto buy skills  •  Core upgrades", "自动购买技能  •  核心升级", "スキル自動購入  •  コア強化", "Tự mua kỹ năng  •  Nâng cấp Core" },
+        { "วาร์ป & โซน", "Teleport & Zones", "传送与区域", "テレポート＆ゾーン", "Dịch chuyển & Khu vực" },
+        { "ปลดล็อคโซน  •  วาร์ปไปจุดสำคัญ", "Unlock zones  •  Teleport to key spots", "解锁区域  •  传送到重要地点", "ゾーン解放  •  重要地点へテレポート", "Mở khóa khu vực  •  Dịch chuyển đến điểm quan trọng" },
+        { "ระบบฟาร์ม", "Farm System", "农场系统", "ファームシステム", "Hệ thống cày" },
+        { "กันหลุด  •  ประหยัดทรัพยากร", "Anti-AFK  •  Save resources", "防掉线  •  节省资源", "AFK対策  •  省リソース", "Chống AFK  •  Tiết kiệm tài nguyên" },
+        { "ตีหินทุกโหนด 25 ครั้งแล้ว", "Hit all nodes 25 times", "已敲击所有矿点25次", "全ノードを25回叩きました", "Đã đập mọi node 25 lần" },
+        { "ไม่พบแปลงของคุณ", "Your plot was not found", "未找到你的矿区", "あなたの区画が見つかりません", "Không tìm thấy khu đất của bạn" },
+        { "ยังไม่พร้อม (ไม่พบหีบ/จุดขาย)", "Not ready (chest/sell stand not found)", "尚未就绪（未找到箱子/售卖点）", "準備未完了（チェスト/売却所なし）", "Chưa sẵn sàng (không thấy rương/điểm bán)" },
+        { "ขายสำเร็จ +$", "Sold +$", "出售成功 +$", "売却成功 +$", "Đã bán +$" },
+        { "ไม่พบคนขุด กรุณาติดตั้งคนขุดบนแท่นก่อน", "No miner found. Please equip a miner first", "未找到矿工，请先装备矿工", "採掘員が見つかりません。先に装備してください", "Không thấy thợ mỏ. Hãy trang bị thợ mỏ trước" },
+        { "อัพเกรด ", "Upgraded ", "已升级 ", "強化: ", "Đã nâng cấp " },
+        { " รายการ", " items", " 项", " 件", " mục" },
+        { "อัพเกรดไม่ได้ (เงินไม่พอ หรือสแตทตันแล้ว)", "Cannot upgrade (not enough money or stat maxed)", "无法升级（金币不足或属性已满）", "強化できません（お金不足または最大）", "Không nâng cấp được (thiếu tiền hoặc đã tối đa)" },
+        { "ซื้อไม่ได้ (หมดสต็อก / โซนยังไม่ปลดล็อค / เงินไม่พอ)", "Cannot buy (out of stock / zone locked / not enough money)", "无法购买（缺货 / 区域未解锁 / 金币不足）", "購入できません（在庫切れ / ゾーン未解放 / お金不足）", "Không mua được (hết hàng / chưa mở khu / thiếu tiền)" },
+        { "ส่งคำขอซื้ออีเตอร์ ", "Sent pickaxe purchase: ", "已发送购买镐请求：", "ツルハシ購入を送信: ", "Đã gửi yêu cầu mua cúp: " },
+        { "วาร์ปไป", "Teleported to ", "传送到", "テレポート先: ", "Đã dịch chuyển tới " },
+        { "แล้ว", "", "", "", "" },
+        { "ไม่พบ", "Not found: ", "未找到", "見つかりません: ", "Không thấy " },
+        { "ออโต้ไก่ตัน", "Auto Max Out", "自动满级", "オートMAX", "Tự động tối đa" },
+        { "ออโต้ไก่ตัน (ทำให้ทุกอย่าง)", "Auto Max Out (do everything)", "自动满级（全部自动）", "オートMAX（すべて実行）", "Tự động tối đa (làm mọi thứ)" },
+        { "เปิดทุกระบบให้ฟาร์ม อัพเกรด และปลดล็อคจนตันในคลิกเดียว", "Turn on every system to farm, upgrade and unlock until maxed in one click", "一键开启全部系统，自动挖矿、升级、解锁直至满级", "ワンクリックで全機能をON。ファーム・強化・解放を最大まで自動化", "Bật mọi hệ thống để cày, nâng cấp và mở khóa đến tối đa chỉ với một cú nhấp" },
+        { "เปิดออโต้ไก่ตันแล้ว ทำให้ทุกอย่าง", "Auto Max Out enabled — doing everything", "已开启自动满级，全部自动运行", "オートMAXをONにしました", "Đã bật Tự động tối đa — làm mọi thứ" },
+        { "ปิดออโต้ไก่ตันแล้ว", "Auto Max Out disabled", "已关闭自动满级", "オートMAXをOFFにしました", "Đã tắt Tự động tối đa" },
+        { "ขุดหินอัตโนมัติ", "Auto Mining", "自动挖矿", "自動採掘", "Tự động đào đá" },
+        { "Auto ตีหินทุกโหนด", "Auto Hit All Nodes", "自动敲击所有矿点", "全ノード自動攻撃", "Tự đập mọi node" },
+        { "คลิกตีหินทุกก้อนในแปลงของคุณรัวๆ", "Rapidly click every rock in your plot", "连续点击你矿区内的所有矿石", "区画内のすべての岩を連打", "Nhấp liên tục mọi viên đá trong khu đất" },
+        { "ความเร็วการตีหิน (Hit Delay)", "Hit Speed (Hit Delay)", "敲击速度（延迟）", "攻撃速度（ディレイ）", "Tốc độ đập (Hit Delay)" },
+        { "ระยะหน่วงต่อการตีหนึ่งรอบ (ยิ่งน้อยยิ่งเร็ว)", "Delay per hit round (lower = faster)", "每轮敲击间隔（越小越快）", "1周あたりの間隔（小さいほど速い）", "Độ trễ mỗi lượt đập (càng nhỏ càng nhanh)" },
+        { " วิ", " s", " 秒", " 秒", " giây" },
+        { "Auto เก็บแร่ที่ตกพื้น", "Auto Collect Dropped Ore", "自动拾取掉落矿石", "落ちた鉱石を自動回収", "Tự nhặt quặng rơi" },
+        { "ดูดแร่ที่ตกเกลื่อนตามพื้นแปลงทันที", "Instantly vacuum ore dropped around your plot", "立即吸取区域内掉落的矿石", "区画に落ちた鉱石をすぐ吸収", "Hút ngay quặng rơi trên khu đất" },
+        { "ตีหินทุกโหนดทันที 25 ครั้ง", "Hit All Nodes 25x Now", "立即敲击所有矿点25次", "全ノードを今すぐ25回攻撃", "Đập mọi node 25 lần ngay" },
+        { "Burst Strike — เคาะหินทุกก้อนต่อเนื่องในพริบตา", "Burst Strike — hit every rock in an instant", "连击 — 瞬间敲击所有矿石", "バーストストライク — 全ての岩を一瞬で連続攻撃", "Burst Strike — đập mọi viên đá trong tích tắc" },
+        { "ดูดแร่จากหีบ & ขายอัตโนมัติ", "Auto Take from Chest & Sell", "自动取箱子矿石并出售", "チェストから回収＆自動売却", "Tự lấy từ rương & bán" },
+        { "Auto ดูดแร่จากหีบ & วาร์ปไปขาย", "Auto Take Ore & Teleport to Sell", "自动取矿并传送出售", "自動回収＆売却へテレポート", "Tự lấy quặng & dịch chuyển đi bán" },
+        { "ดูดแร่จาก Chest แล้วไปขายที่ SellStand (ปิดแล้วหยุดทันที)", "Take ore from the Chest, then sell at the SellStand (stops instantly when off)", "从箱子取矿后到售卖点出售（关闭立即停止）", "チェストの鉱石を回収しSellStandで売却（OFFで即停止）", "Lấy quặng từ Chest rồi bán ở SellStand (tắt là dừng ngay)" },
+        { "ระยะห่างรอบการขาย", "Sell Interval", "出售间隔", "売却間隔", "Chu kỳ bán" },
+        { "ความถี่ในการดูดแร่และไปขาย (5 - 900 วินาที)", "How often to take ore and sell (5 - 900 seconds)", "取矿与出售频率（5 - 900 秒）", "回収と売却の頻度（5〜900秒）", "Tần suất lấy quặng và bán (5 - 900 giây)" },
+        { "ดูดแร่ & ขายทั้งหมดเดี๋ยวนี้", "Take Ore & Sell All Now", "立即取矿并全部出售", "今すぐ回収して全て売却", "Lấy quặng & bán hết ngay" },
+        { "Sell All Now — วาร์ปดูดแร่และขายทันที 1 รอบ", "Sell All Now — teleport, take ore and sell once", "立即出售 — 传送取矿并出售一轮", "今すぐ売却 — テレポートして1回回収・売却", "Bán ngay — dịch chuyển, lấy quặng và bán 1 lượt" },
+        { "คนขุด & อัพเกรดตัวดีที่สุด", "Miners & Best Upgrades", "矿工与最佳升级", "採掘員＆ベスト強化", "Thợ mỏ & Nâng cấp tốt nhất" },
+        { "กำลังวิเคราะห์คนขุด...", "Analyzing miners...", "正在分析矿工...", "採掘員を分析中...", "Đang phân tích thợ mỏ..." },
+        { "กรุณารอสักครู่...", "Please wait...", "请稍候...", "しばらくお待ちください...", "Vui lòng chờ..." },
+        { "Auto ใส่ตัวที่ดีที่สุดตลอดเวลา", "Auto Equip Best Always", "自动装备最强矿工", "常に最強を自動装備", "Tự trang bị tốt nhất" },
+        { "สแกนและเปลี่ยนเป็นคนขุดที่แรงที่สุดทุก 12 วินาที", "Scan and switch to the strongest miner every 12 seconds", "每12秒扫描并换成最强矿工", "12秒ごとに最強の採掘員へ切替", "Quét và đổi sang thợ mỏ mạnh nhất mỗi 12 giây" },
+        { "ใส่ตัวที่ดีที่สุดทันที", "Equip Best Now", "立即装备最强", "今すぐ最強を装備", "Trang bị tốt nhất ngay" },
+        { "Equip Best Now — ส่งคำขอใส่ตัวที่เก่งที่สุด 1 ครั้ง", "Equip Best Now — send one request to equip the strongest", "立即装备 — 发送一次装备最强请求", "今すぐ装備 — 最強装備を1回リクエスト", "Equip Best Now — gửi 1 yêu cầu trang bị mạnh nhất" },
+        { "ส่งคำขอใส่ตัวที่ดีที่สุดแล้ว", "Equip-best request sent", "已发送装备最强请求", "最強装備をリクエストしました", "Đã gửi yêu cầu trang bị tốt nhất" },
+        { "Auto อัพเกรดคนขุดที่ดีที่สุด", "Auto Upgrade Best Miner", "自动升级最强矿工", "最強採掘員を自動強化", "Tự nâng cấp thợ mỏ tốt nhất" },
+        { "อัพเกรดคนขุดตามสแตทที่เลือกด้านล่าง", "Upgrade miners using the stats selected below", "按下方所选属性升级矿工", "下で選んだステータスで採掘員を強化", "Nâng cấp thợ mỏ theo chỉ số chọn bên dưới" },
+        { "เลือกสแตทที่จะอัพเกรด", "Select stats to upgrade", "选择要升级的属性", "強化するステータスを選択", "Chọn chỉ số để nâng cấp" },
+        { "แตะเพื่อเปิดรายการ (เลือกได้หลายอัน)", "Tap to open list (multi-select)", "点击展开列表（可多选）", "タップで一覧を開く（複数選択可）", "Chạm để mở danh sách (chọn nhiều)" },
+        { "เน้นตัวเทพสุดก่อนเสมอ", "Always Best First", "始终优先最强", "常に最強を優先", "Luôn ưu tiên mạnh nhất" },
+        { "รอเงินอัพตัวที่ดีที่สุดให้ตันก่อนอัพตัวถัดไป", "Wait to max the best miner before upgrading the next", "先把最强矿工升满再升下一个", "最強を最大にしてから次を強化", "Chờ nâng tối đa con mạnh nhất rồi mới nâng con kế" },
+        { "อัพเกรดคนขุดที่ดีที่สุดทันที", "Upgrade Best Miner Now", "立即升级最强矿工", "最強採掘員を今すぐ強化", "Nâng cấp thợ mỏ tốt nhất ngay" },
+        { "Upgrade Best Now — อัพสแตทที่เลือกของตัวเทพสุด 1 รอบ", "Upgrade Best Now — upgrade the selected stats of the top miner once", "立即升级 — 升级最强矿工所选属性一轮", "今すぐ強化 — 最強のステータスを1回強化", "Upgrade Best Now — nâng chỉ số đã chọn của con mạnh nhất 1 lượt" },
+        { "ร้านอีเตอร์ & ซื้ออัตโนมัติ", "Pickaxe Shop & Auto Buy", "镐商店与自动购买", "ツルハシ店＆自動購入", "Cửa hàng cúp & Tự mua" },
+        { "กำลังโหลดข้อมูลสต็อกอีเตอร์...", "Loading pickaxe stock info...", "正在加载镐库存...", "ツルハシの在庫情報を読み込み中...", "Đang tải thông tin kho cúp..." },
+        { "เลือกอีเตอร์ที่ต้องการซื้อ", "Select pickaxes to buy", "选择要购买的镐", "購入するツルハシを選択", "Chọn cúp muốn mua" },
+        { "ซื้ออีเตอร์ที่เลือกอัตโนมัติ", "Auto Buy Selected Pickaxes", "自动购买所选镐", "選択したツルハシを自動購入", "Tự mua cúp đã chọn" },
+        { "เช็คสต็อกตลอดเวลา ซื้อเฉพาะที่เลือกเมื่อมีของ", "Check stock constantly and buy only selected ones when available", "持续检查库存，有货时只买所选", "常に在庫を確認し、選択品のみ入荷時に購入", "Luôn kiểm tra kho, chỉ mua món đã chọn khi có hàng" },
+        { "เลือกอีเตอร์ทั้งหมด", "Select All Pickaxes", "选择全部镐", "すべてのツルハシを選択", "Chọn tất cả cúp" },
+        { "Select All — ติ๊กอีเตอร์ทุกอันในร้าน", "Select All — tick every pickaxe in the shop", "全选 — 勾选商店所有镐", "全選択 — 店のツルハシをすべてチェック", "Select All — chọn mọi cúp trong shop" },
+        { "เลือกอีเตอร์ทั้งหมดแล้ว", "All pickaxes selected", "已选择全部镐", "すべて選択しました", "Đã chọn tất cả cúp" },
+        { "ล้างการเลือกทั้งหมด", "Clear All Selection", "清除全部选择", "選択をすべて解除", "Bỏ chọn tất cả" },
+        { "Clear — ยกเลิกการเลือกอีเตอร์ทุกอัน", "Clear — deselect every pickaxe", "清除 — 取消选择所有镐", "クリア — ツルハシの選択を全解除", "Clear — bỏ chọn mọi cúp" },
+        { "ล้างการเลือกอีเตอร์แล้ว", "Pickaxe selection cleared", "已清除镐选择", "選択を解除しました", "Đã bỏ chọn cúp" },
+        { "กวาดซื้ออีเตอร์ที่เลือกตอนนี้", "Buy Selected Pickaxes Now", "立即购买所选镐", "選択ツルハシを今すぐ購入", "Mua cúp đã chọn ngay" },
+        { "Buy Selected Now — วาร์ปไปซื้อทุกเล่มที่เลือก 1 รอบ", "Buy Selected Now — teleport and buy every selected pickaxe once", "立即购买 — 传送并购买所有所选镐一轮", "今すぐ購入 — テレポートして選択品を1回購入", "Buy Selected Now — dịch chuyển mua mọi cúp đã chọn 1 lượt" },
+        { "ออโต้วิจัยสกิล (Multi-Zone Skill Tree)", "Auto Skill Research (Multi-Zone Skill Tree)", "自动研究技能（多区域技能树）", "スキル自動研究（マルチゾーンスキルツリー）", "Tự nghiên cứu kỹ năng (Cây kỹ năng đa khu)" },
+        { "Auto ซื้อสกิลทรีประจำโซน", "Auto Buy Zone Skill Tree", "自动购买区域技能树", "ゾーンのスキルツリー自動購入", "Tự mua cây kỹ năng khu" },
+        { "ไล่ซื้อโหนดสกิลที่เปิดอยู่ทั้งหมดอัตโนมัติ", "Automatically buy every unlocked skill node", "自动购买所有已开放的技能节点", "開放済みのスキルノードを自動で購入", "Tự động mua mọi node kỹ năng đã mở" },
+        { "อัพเกรด Core (พลังแตะ & ช่องคนขุด)", "Core Upgrades (Tap power & Miner slots)", "核心升级（点击力与矿工栏位）", "コア強化（タップ力＆採掘員スロット）", "Nâng cấp Core (Sức đập & Ô thợ mỏ)" },
+        { "Auto อัพเกรด Core", "Auto Upgrade Core", "自动升级核心", "コア自動強化", "Tự nâng cấp Core" },
+        { "ซื้อ Tap Damage และ Miner Slots เมื่อมีเงินพอ", "Buy Tap Damage and Miner Slots when you have enough money", "金币足够时购买点击伤害与矿工栏位", "お金が足りたらタップダメージとスロットを購入", "Mua Tap Damage và Miner Slots khi đủ tiền" },
+        { "ซื้อสกิลที่ซื้อได้ทั้งหมดทันที", "Buy All Affordable Skills Now", "立即购买所有买得起的技能", "買えるスキルを今すぐ全て購入", "Mua mọi kỹ năng mua được ngay" },
+        { "Buy All Available — กวาดซื้อสกิลและ Core ที่เงินพอ", "Buy All Available — sweep-buy skills and Core you can afford", "全部购买 — 购买金币足够的技能和核心", "全て購入 — 買えるスキルとコアを一括購入", "Buy All Available — mua hết kỹ năng và Core đủ tiền" },
+        { "ซื้อสกิลที่พร้อมแล้ว ", "Skills purchased: ", "已购买技能：", "購入したスキル: ", "Đã mua kỹ năng: " },
+        { "รางวัล", "Rewards", "奖励", "報酬", "Phần thưởng" },
+        { "Auto รับรางวัล", "Auto Claim Rewards", "自动领取奖励", "報酬を自動受取", "Tự nhận thưởng" },
+        { "รับรางวัลกลุ่ม / น้ำมัน / Worth / เก็บของจากร้านทุก 12 วินาที", "Claim group rewards / oil / worth / shop collection every 12 seconds", "每12秒领取群组奖励/石油/Worth/商店收益", "12秒ごとにグループ報酬/オイル/Worth/店の収益を受取", "Nhận thưởng nhóm / dầu / Worth / thu từ shop mỗi 12 giây" },
+        { "โซน & ปลดล็อคอัตโนมัติ", "Zones & Auto Unlock", "区域与自动解锁", "ゾーン＆自動解放", "Khu vực & Tự mở khóa" },
+        { "กำลังดึงข้อมูลโซนและการวิจัย...", "Fetching zone and research info...", "正在获取区域与研究信息...", "ゾーンと研究の情報を取得中...", "Đang lấy thông tin khu vực và nghiên cứu..." },
+        { "ปลดล็อคโซนอัตโนมัติ", "Auto Unlock Zones", "自动解锁区域", "ゾーン自動解放", "Tự mở khóa khu vực" },
+        { "วิจัยครบและเงินถึงจะปลดล็อค/เปลี่ยนโซนถัดไปทันที", "Unlock and move to the next zone as soon as research is done and money is enough", "研究完成且金币足够即解锁并切换下一区域", "研究完了とお金が揃えば即解放・次のゾーンへ", "Mở khóa và chuyển khu kế ngay khi nghiên cứu xong và đủ tiền" },
+        { "ปลดล็อคโซนถัดไปทันที", "Unlock Next Zone Now", "立即解锁下一区域", "次のゾーンを今すぐ解放", "Mở khóa khu kế ngay" },
+        { "Unlock Next Zone Now — ส่งคำขอปลดล็อคบน Zone Board", "Unlock Next Zone Now — send the unlock request on the Zone Board", "立即解锁 — 在区域面板发送解锁请求", "今すぐ解放 — ゾーンボードで解放をリクエスト", "Unlock Next Zone Now — gửi yêu cầu mở khóa trên Zone Board" },
+        { "ปลดล็อคโซน ", "Unlocked zone ", "已解锁区域 ", "解放したゾーン: ", "Đã mở khóa khu " },
+        { " สำเร็จ", " successfully", " 成功", " 成功", " thành công" },
+        { "เงินไม่พอปลดล็อค ", "Not enough money to unlock ", "金币不足，无法解锁 ", "お金が足りず解放できません: ", "Không đủ tiền để mở khóa " },
+        { " ขาดอีก $", " — short by $", " 还差 $", " あと $", " — còn thiếu $" },
+        { "ปลดล็อคครบทุกโซนแล้ว", "All zones unlocked", "已解锁所有区域", "すべてのゾーンを解放済み", "Đã mở khóa mọi khu vực" },
+        { "จุดสำคัญในเกม", "Key Locations", "游戏重要地点", "ゲーム内の重要地点", "Điểm quan trọng trong game" },
+        { "วาร์ปไปแปลงของฉัน", "Teleport to My Plot", "传送到我的矿区", "自分の区画へテレポート", "Dịch chuyển về khu đất của tôi" },
+        { "แปลงของคุณ", "your plot", "你的矿区", "あなたの区画", "khu đất của bạn" },
+        { "วาร์ปไปหีบเก็บแร่ของแปลง", "Teleport to Plot Chest", "传送到矿区箱子", "区画のチェストへテレポート", "Dịch chuyển tới rương của khu đất" },
+        { "หีบเก็บแร่", "ore chest", "矿石箱", "鉱石チェスト", "rương quặng" },
+        { "วาร์ปไปจุดขายแร่", "Teleport to Sell Stand", "传送到售卖点", "売却所へテレポート", "Dịch chuyển tới điểm bán" },
+        { "จุดขายแร่", "sell stand", "售卖点", "売却所", "điểm bán" },
+        { "วาร์ปไปแท่นรับของขวัญกลุ่ม", "Teleport to Group Rewards Pad", "传送到群组奖励台", "グループ報酬台へテレポート", "Dịch chuyển tới bệ quà nhóm" },
+        { "แท่นของขวัญกลุ่ม", "group rewards pad", "群组奖励台", "グループ報酬台", "bệ quà nhóm" },
+        { "วาร์ปไปศิลาทดสอบ", "Teleport to Trial Stone", "传送到试炼石", "試練の石へテレポート", "Dịch chuyển tới Đá thử thách" },
+        { "ศิลาทดสอบ", "trial stone", "试炼石", "試練の石", "Đá thử thách" },
+        { "เสถียรภาพฟาร์มยาว", "Long-Run Farm Stability", "长时间挂机稳定性", "長時間ファームの安定性", "Ổn định cày lâu dài" },
+        { "ระบบกันเด้ง (Anti-AFK)", "Anti-AFK Guard", "防掉线系统 (Anti-AFK)", "AFK対策 (Anti-AFK)", "Chống AFK (Anti-AFK)" },
+        { "กันหลุดจากการ AFK ตลอดเวลา", "Prevents AFK disconnects at all times", "始终防止因挂机掉线", "常時AFK切断を防止", "Luôn chống bị ngắt do AFK" },
+        { "โหมดลดการกินแรม/ซีพียู", "Low RAM/CPU Mode", "低内存/CPU模式", "低RAM/CPUモード", "Chế độ giảm RAM/CPU" },
+        { "ปิดการเรนเดอร์ 3D ประหยัดพลังงานเวลาฟาร์มข้ามคืน", "Turn off 3D rendering to save power when farming overnight", "关闭3D渲染，通宵挂机省电", "3D描画をOFFにして夜通しファームを省電力化", "Tắt kết xuất 3D để tiết kiệm điện khi cày qua đêm" },
+        { "ล้างขยะหน่วยความจำทันที", "Clean Memory Now", "立即清理内存", "今すぐメモリを掃除", "Dọn bộ nhớ ngay" },
+        { "Clean Memory — สั่งรัน Garbage Collector", "Clean Memory — run the Garbage Collector", "清理内存 — 运行垃圾回收", "メモリ掃除 — ガベージコレクタを実行", "Clean Memory — chạy Garbage Collector" },
+        { "ล้างขยะ RAM แล้ว คืนพื้นที่ ", "RAM cleaned, freed ", "已清理内存，释放 ", "RAMを掃除しました。解放: ", "Đã dọn RAM, giải phóng " },
+        { "ปิดสคริปต์", "Close Script", "关闭脚本", "スクリプトを終了", "Đóng script" },
+        { "ปิดสคริปต์ & คืนหน่วยความจำ", "Close Script & Free Memory", "关闭脚本并释放内存", "スクリプト終了＆メモリ解放", "Đóng script & giải phóng bộ nhớ" },
+        { "Unload — ปิด UI หยุดทุกลูป และคืนค่าอีเวนต์ทั้งหมด", "Unload — close the UI, stop all loops and restore all events", "卸载 — 关闭界面、停止所有循环并还原事件", "アンロード — UIを閉じ、全ループ停止、イベントを復元", "Unload — đóng UI, dừng mọi vòng lặp và khôi phục sự kiện" },
+        { "ปิด", "Close", "关闭", "閉じる", "Đóng" },
+        { "สถานะฟาร์ม", "Farm Status", "农场状态", "ファーム状況", "Trạng thái cày" },
+        { "กำลังโหลด...", "Loading...", "加载中...", "読み込み中...", "Đang tải..." },
+        { "เงิน $", "Money $", "金币 $", "お金 $", "Tiền $" },
+        { "โซน: ", "Zone: ", "区域：", "ゾーン: ", "Khu: " },
+        { "อีเตอร์: ", "Pickaxe: ", "镐：", "ツルハシ: ", "Cúp: " },
+        { "ปัจจุบัน: ", "Current: ", "当前：", "現在: ", "Hiện tại: " },
+        { "สต็อกรีใน: ", "Restock in: ", "补货倒计时：", "入荷まで: ", "Nhập hàng sau: " },
+        { "เลือกไว้: ", "Selected: ", "已选：", "選択中: ", "Đã chọn: " },
+        { " เล่ม", " pcs", " 把", " 本", " cây" },
+        { "สถานะ: ", "Status: ", "状态：", "状態: ", "Trạng thái: " },
+        { "Auto Buy ทำงาน", "Auto Buy running", "自动购买运行中", "自動購入 作動中", "Tự mua đang chạy" },
+        { "Auto Buy ปิดอยู่", "Auto Buy off", "自动购买已关闭", "自動購入 OFF", "Tự mua đang tắt" },
+        { "โซนถัดไป: ", "Next zone: ", "下一区域：", "次のゾーン: ", "Khu kế tiếp: " },
+        { "(ราคา $", "(price $", "（价格 $", "（価格 $", "(giá $" },
+        { "[เงินพร้อมปลดล็อค]", "[money ready to unlock]", "[金币已够，可解锁]", "[解放可能なお金あり]", "[đủ tiền mở khóa]" },
+        { "[กำลังสะสมเงิน...]", "[saving up...]", "[正在攒钱...]", "[貯金中...]", "[đang tích tiền...]" },
+        { "โซนปัจจุบัน: ", "Current zone: ", "当前区域：", "現在のゾーン: ", "Khu hiện tại: " },
+        { "วิจัย: ", "Research: ", "研究：", "研究: ", "Nghiên cứu: " },
+        { "ตัวเทพสุด: ยังไม่พบคนขุด", "Best miner: none found", "最强矿工：未找到", "最強の採掘員: 見つかりません", "Thợ mỏ mạnh nhất: chưa thấy" },
+        { "ตัวเทพสุด: ", "Best miner: ", "最强矿工：", "最強の採掘員: ", "Thợ mỏ mạnh nhất: " },
+        { "กรุณาติดตั้งคนขุดบนแท่นขุด", "Please equip miners on the mining pad", "请在矿工台上装备矿工", "採掘台に採掘員を装備してください", "Hãy trang bị thợ mỏ lên bệ đào" },
+        { "ตั้งค่า", "Settings", "设置", "設定", "Cài đặt" },
+        { "ปรับแต่งหน้าตา RELWX  •  เปลี่ยนแล้วเซฟทันที", "Customize RELWX  •  Saved instantly", "自定义 RELWX 外观  •  更改即保存", "RELWXの見た目を調整  •  変更は即保存", "Tùy chỉnh RELWX  •  Đổi là lưu ngay" },
+        { "ระบบ", "System", "系统", "システム", "Hệ thống" },
+        { "เสียงตอนเปิด/ปิดฟังก์ชัน", "Toggle sounds", "开关音效", "ON/OFF時のサウンド", "Âm thanh khi bật/tắt" },
+        { "เล่นเสียงสั้นๆ เมื่อกดสวิตช์", "Play a short sound when switches are pressed", "按下开关时播放短音效", "スイッチ操作時に短い音を再生", "Phát âm ngắn khi nhấn công tắc" },
+        { "แสดง FPS / MS", "Show FPS / MS", "显示 FPS / MS", "FPS / MSを表示", "Hiện FPS / MS" },
+        { "กล่องเล็กลากย้ายตำแหน่งได้", "Small box, draggable", "小方框，可拖动", "小さなボックス。ドラッグで移動可", "Hộp nhỏ, kéo để di chuyển" },
+        { "ขนาดหน้าต่าง", "Window size", "窗口大小", "ウィンドウサイズ", "Kích thước cửa sổ" },
+        { "ปรับเพิ่มจากขนาดอัตโนมัติตามหน้าจอ", "Adjust on top of the automatic screen-based size", "在按屏幕自动大小基础上调整", "画面に合わせた自動サイズに上乗せ調整", "Điều chỉnh thêm trên kích thước tự động theo màn hình" },
+        { "ธีมสำเร็จรูป", "Theme presets", "预设主题", "プリセットテーマ", "Giao diện mẫu" },
+        { "ธีม UI", "UI Theme", "界面主题", "UIテーマ", "Giao diện UI" },
+        { "สีหลัก UI", "UI accent color", "界面主色", "UIメインカラー", "Màu chính UI" },
+        { "สีพื้นหลัง UI", "UI background color", "界面背景色", "UI背景色", "Màu nền UI" },
+        { "สีปุ่ม UI", "UI button color", "界面按钮色", "UIボタン色", "Màu nút UI" },
+        { "ปุ่มลอย RX", "Floating RX button", "悬浮 RX 按钮", "フローティングRXボタン", "Nút nổi RX" },
+        { "สีปุ่ม RX", "RX button color", "RX 按钮色", "RXボタン色", "Màu nút RX" },
+        { "สีขอบ RX", "RX border color", "RX 边框色", "RX枠色", "Màu viền RX" },
+        { "สี Glow RX", "RX glow color", "RX 光晕色", "RXグロー色", "Màu glow RX" },
+        { "บันทึกอัตโนมัติ", "Auto save", "自动保存", "自動保存", "Tự động lưu" },
+        { "executor นี้ไม่รองรับการเขียนไฟล์", "This executor does not support writing files", "此 executor 不支持写入文件", "このexecutorはファイル書き込み非対応", "Executor này không hỗ trợ ghi file" },
+        { "รีเซ็ตการตั้งค่าทั้งหมด", "Reset all settings", "重置所有设置", "すべての設定をリセット", "Đặt lại mọi cài đặt" },
+        { "กดอีกครั้งเพื่อยืนยันการรีเซ็ต", "Press again to confirm reset", "再按一次确认重置", "もう一度押してリセット確定", "Nhấn lần nữa để xác nhận đặt lại" },
+        { "รีเซ็ตการตั้งค่าแล้ว", "Settings reset", "设置已重置", "設定をリセットしました", "Đã đặt lại cài đặt" },
+        { "เมนูหลัก", "MAIN MENU", "主菜单", "メインメニュー", "MENU CHÍNH" },
+        { "ฟาร์ม & คนขุด", "Farm & Miners", "农场与矿工", "ファーム＆採掘員", "Cày & Thợ mỏ" },
+        { "อัพเกรด & สกิล", "Upgrades & Skills", "升级与技能", "強化＆スキル", "Nâng cấp & Kỹ năng" },
+        { "ภาษา / Language", "Language", "语言 / Language", "言語 / Language", "Ngôn ngữ / Language" },
+        { "เลือกภาษา", "Choose language", "选择语言", "言語を選択", "Chọn ngôn ngữ" },
+        { "เปลี่ยนภาษาของเมนูทั้งหมดทันที", "Changes the language of every menu instantly", "立即切换所有菜单的语言", "すべてのメニューの言語を即時変更", "Đổi ngôn ngữ của toàn bộ menu ngay lập tức" },
+    }
+
+    local exact, frags = {}, {}
+    for _, r in ipairs(ROWS) do
+        exact[r[1]] = r
+        frags[#frags + 1] = r
+    end
+    table.sort(frags, function(a, b)
+        return #a[1] > #b[1]
+    end)
+
+    local function hasThai(s)
+        return string.find(s, "\224[\184\185]") ~= nil
+    end
+
+    local function plainReplace(s, a, b)
+        local i, j = string.find(s, a, 1, true)
+        if not i then
+            return s
+        end
+        local parts, pos = {}, 1
+        while i do
+            parts[#parts + 1] = string.sub(s, pos, i - 1)
+            parts[#parts + 1] = b
+            pos = j + 1
+            i, j = string.find(s, a, pos, true)
+        end
+        parts[#parts + 1] = string.sub(s, pos)
+        return table.concat(parts)
+    end
+
+    local function translate(s, lang)
+        if lang == "th" or s == "" or not IDX[lang] then
+            return s
+        end
+        if s == LocalPlayer.DisplayName or s == tostring(game.Name) then
+            return s
+        end
+        local r = exact[s]
+        if r then
+            return r[IDX[lang]] or s
+        end
+        if not hasThai(s) then
+            return s
+        end
+        local out = s
+        for _, f in ipairs(frags) do
+            local v = f[IDX[lang]]
+            if v and string.find(out, f[1], 1, true) then
+                out = plainReplace(out, f[1], v)
+            end
+        end
+        return out
+    end
+
+    local lang = Config.Language
+    if not IDX[lang] and lang ~= "th" then
+        lang = "th"
+    end
+
+    local orig = setmetatable({}, { __mode = "k" })
+    local shown = setmetatable({}, { __mode = "k" })
+
+    local function apply(l)
+        local o = orig[l]
+        if o == nil then
+            return
+        end
+        local t = translate(o, lang)
+        if l.Text ~= t then
+            shown[l] = t
+            l.Text = t
+        else
+            shown[l] = l.Text
+        end
+    end
+
+    local function track(l)
+        if orig[l] ~= nil then
+            return
+        end
+        if not (l:IsA("TextLabel") or l:IsA("TextButton")) then
+            return
+        end
+        orig[l] = l.Text
+        Track(l:GetPropertyChangedSignal("Text"):Connect(function()
+            if l.Text == shown[l] then
+                return
+            end
+            orig[l] = l.Text
+            apply(l)
+        end))
+        apply(l)
+    end
+
+    local function applyAll()
+        for l in pairs(orig) do
+            pcall(apply, l)
+        end
+    end
+
+    Track(Screen.DescendantAdded:Connect(function(d)
+        pcall(track, d)
+    end))
+    for _, d in ipairs(Screen:GetDescendants()) do
+        pcall(track, d)
+    end
+
+    --==================================================
+    -- Settings UI: ตัวเลือกภาษา
+    --==================================================
+    Section(Settings, "ภาษา / Language")
+
+    local row = Panel(Settings, UDim2.new(1, 0, 0, 100))
+    Register(row, "ภาษา language 语言 言語 ngôn ngữ")
+
+    local title = Text(row, "เลือกภาษา", 14, FNT.B, "Text")
+    title.Position = UDim2.fromOffset(18, 10)
+    title.Size = UDim2.new(1, -36, 0, 20)
+    local desc = Text(row, "เปลี่ยนภาษาของเมนูทั้งหมดทันที", 12, FNT.R, "Sub")
+    desc.Position = UDim2.fromOffset(18, 31)
+    desc.Size = UDim2.new(1, -36, 0, 18)
+
+    local holder = New("Frame", {
+        Size = UDim2.new(1, -28, 0, 32),
+        Position = UDim2.fromOffset(14, 58),
+        BackgroundTransparency = 1,
+    }, row)
+    New("UIGridLayout", {
+        CellSize = UDim2.new(1 / #LANGS, -6, 0, 32),
+        CellPadding = UDim2.fromOffset(6, 0),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+    }, holder)
+
+    local cells = {}
+    local function render()
+        for code, c in pairs(cells) do
+            local on = code == lang
+            c.BackgroundColor3 = on and Theme.Accent or Theme.Surface2
+            c.TextColor3 = on and Theme.OnAccent or Theme.Sub
+        end
+    end
+
+    for i, L in ipairs(LANGS) do
+        local c = New("TextButton", {
+            BorderSizePixel = 0,
+            Text = L[2],
+            TextSize = 12,
+            Font = FNT.M,
+            AutoButtonColor = false,
+            LayoutOrder = i,
+        }, holder)
+        Corner(c, 10)
+        cells[L[1]] = c
+        c.MouseButton1Click:Connect(function()
+            if lang == L[1] then
+                return
+            end
+            lang = L[1]
+            SetConfig("Language", lang)
+            PlayToggleSound(true)
+            render()
+            applyAll()
+            Toast(L[2])
+        end)
+    end
+    OnTheme(render)
+
+    Refreshers[#Refreshers + 1] = function()
+        local l = Config.Language
+        lang = (IDX[l] or l == "th") and l or "th"
+        render()
+        applyAll()
+    end
+
+    -- sweep แรก (บางข้อความถูกตั้งหลังสร้าง)
+    task.delay(0.3, applyAll)
+end)()
+
+Section(Settings, "ธีมสำเร็จรูป")
+ThemeGrid(Settings)
+
+Section(Settings, "ธีม UI")
+ColorRow(Settings, "สีหลัก UI", "UIAccentColor")
+ColorRow(Settings, "สีพื้นหลัง UI", "UIBackgroundColor")
+ColorRow(Settings, "สีปุ่ม UI", "UIButtonColor")
+
+Section(Settings, "ปุ่มลอย RX")
+ColorRow(Settings, "สีปุ่ม RX", "FloatingButtonColor")
+ColorRow(Settings, "สีขอบ RX", "FloatingBorderColor")
+ColorRow(Settings, "สี Glow RX", "FloatingGlowColor")
+
+Section(Settings, "Config")
+
+local CfgCard = Panel(Settings, UDim2.new(1, 0, 0, 64))
+local CfgTitle = Text(CfgCard, "บันทึกอัตโนมัติ", 13, FNT.M, "Text")
+CfgTitle.Position = UDim2.fromOffset(16, 11)
+CfgTitle.Size = UDim2.new(1, -140, 0, 20)
+local CfgDesc = Text(
+    CfgCard,
+    writefile and CONFIG_FILE or "executor นี้ไม่รองรับการเขียนไฟล์",
+    10,
+    FNT.R,
+    "Muted"
+)
+CfgDesc.Position = UDim2.fromOffset(16, 33)
+CfgDesc.Size = UDim2.new(1, -140, 0, 18)
+local CfgPill = StatusPill(CfgCard, 108)
+CfgPill.AnchorPoint = Vector2.new(1, 0.5)
+CfgPill.Position = UDim2.new(1, -14, 0.5, 0)
+
+local ResetRow = Panel(Settings, UDim2.new(1, 0, 0, 50), "TextButton")
+HoverRow(ResetRow)
+local ResetLabel = Text(ResetRow, "รีเซ็ตการตั้งค่าทั้งหมด", 12, FNT.M, RGB(235, 90, 100))
+ResetLabel.Position = UDim2.fromOffset(16, 0)
+ResetLabel.Size = UDim2.new(1, -32, 1, 0)
+
+local FloatApplyPosition
+
+local resetArmed = false
+ResetRow.MouseButton1Click:Connect(function()
+    if not resetArmed then
+        resetArmed = true
+        ResetLabel.Text = "กดอีกครั้งเพื่อยืนยันการรีเซ็ต"
+        task.delay(3, function()
+            resetArmed = false
+            ResetLabel.Text = "รีเซ็ตการตั้งค่าทั้งหมด"
+        end)
+        return
+    end
+    resetArmed = false
+    ResetLabel.Text = "รีเซ็ตการตั้งค่าทั้งหมด"
+
+    for k, v in pairs(Defaults) do
+        Config[k] = v
+    end
+    Collapsed = {}
+    for _, secs in pairs(SectionsByPage) do
+        for _, sec in ipairs(secs) do
+            sec.collapsed = false
+            sec.refresh(true)
+        end
+    end
+    ApplyTheme()
+    for _, fn in ipairs(Refreshers) do
+        pcall(fn)
+    end
+    Tween(Main, 0.3, { Position = UDim2.fromScale(Config.WindowX, Config.WindowY) }, Enum.EasingStyle.Quint)
+    ApplyScale(true)
+    if FloatApplyPosition then
+        FloatApplyPosition()
+    end
+    StatsBox.Position = UDim2.fromScale(Config.StatsX, Config.StatsY)
+    StatsGui.Enabled = Config.StatsVisible
+    SelectTab(Config.LastTab)
+    SaveConfig(true)
+    Toast("รีเซ็ตการตั้งค่าแล้ว")
+end)
+
+--==================================================
+-- SIDEBAR CATEGORIES
+--==================================================
+
+CatGroup("เมนูหลัก")
+Category("หน้าหลัก", "Home", "grid")
+Category("ฟาร์ม & คนขุด", "Functions", "sliders")
+Category("อัพเกรด & สกิล", "Upgrade", "grid")
+Category("วาร์ป & โซน", "Teleport", "sliders")
+CatGroup("ระบบ")
+Category("ระบบฟาร์ม", "FarmSys", "ring")
+Category("ตั้งค่า", "Settings", "ring")
+
+--==================================================
+-- FLOATING RX BUTTON
+--==================================================
+
+local ToggleGui = New("ScreenGui", {
+    Name = "RELWX_Floating",
+    ResetOnSpawn = false,
+    DisplayOrder = 999999,
+    IgnoreGuiInset = true,
+}, PlayerGui)
+
+local Float = New("Frame", {
+    Size = UDim2.fromOffset(48, 48),
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(Config.FloatX, Config.FloatY),
+    BackgroundTransparency = 1,
+    Active = true,
+}, ToggleGui)
+
+local Glow = New("Frame", {
+    Size = UDim2.new(1, 8, 1, 8),
+    Position = UDim2.fromScale(0.5, 0.5),
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    BackgroundTransparency = 1,
+}, Float)
+Corner(Glow, 15)
+local GlowStroke = Stroke(Glow, RGB(145, 145, 145), 3, 0.2)
+
+local RX = New("TextButton", {
+    Size = UDim2.fromScale(1, 1),
+    Text = "RX",
+    TextSize = 15,
+    Font = FNT.B,
+    BorderSizePixel = 0,
+    AutoButtonColor = false,
+    Active = true,
+}, Float)
+Corner(RX, 13)
+local RXStroke = Stroke(RX, RGB(255, 255, 255), 2, 0.05)
+local RXGrad = New("UIGradient", {
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(0.5, 0.85),
+        NumberSequenceKeypoint.new(1, 0),
+    }),
+}, RXStroke)
+TweenService:Create(
+    RXGrad,
+    TweenInfo.new(3, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1),
+    { Rotation = 360 }
+):Play()
+
+OnTheme(function()
+    local bg = Hex("FloatingButtonColor", RGB(18, 18, 18))
+    RX.BackgroundColor3 = bg
+    RX.TextColor3 = Lum(bg) > 0.55 and RGB(15, 15, 15) or RGB(255, 255, 255)
+    RXStroke.Color = Hex("FloatingBorderColor", RGB(255, 255, 255))
+    GlowStroke.Color = Hex("FloatingGlowColor", RGB(145, 145, 145))
+end)
+
+TweenService:Create(
+    GlowStroke,
+    TweenInfo.new(1.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+    { Transparency = 0.65 }
+):Play()
+
+do
+    local orbit = New("Frame", {
+        Size = UDim2.fromOffset(64, 64),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        BackgroundTransparency = 1,
+    }, Float)
+    local dot = New("Frame", {
+        Size = UDim2.fromOffset(6, 6),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.new(1, 1, 1),
+    }, orbit)
+    Corner(dot, 3)
+    TweenService:Create(
+        orbit,
+        TweenInfo.new(2.6, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1),
+        { Rotation = 360 }
+    ):Play()
+    task.spawn(function()
+        while Float.Parent do
+            task.wait(2.4)
+            pcall(function()
+                local pr = New("Frame", {
+                    Size = UDim2.fromOffset(48, 48),
+                    AnchorPoint = Vector2.new(0.5, 0.5),
+                    Position = UDim2.fromScale(0.5, 0.5),
+                    BackgroundTransparency = 1,
+                }, Float)
+                Corner(pr, 14)
+                local ps = Stroke(pr, Theme.Accent, 2, 0.2)
+                Tween(pr, 1.1, { Size = UDim2.fromOffset(120, 120) }, Enum.EasingStyle.Quad)
+                Tween(ps, 1.1, { Transparency = 1 }, Enum.EasingStyle.Quad)
+                task.delay(1.2, function()
+                    pr:Destroy()
+                end)
+            end)
+        end
+    end)
+    local fs = New("UIScale", { Scale = 1 }, Float)
+    TweenService:Create(
+        fs,
+        TweenInfo.new(1.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+        { Scale = 1.07 }
+    ):Play()
+end
+
+FloatApplyPosition = function()
+    Float.Position = UDim2.fromScale(Config.FloatX, Config.FloatY)
+end
+
+MakeDraggable(RX, Float, "FloatX", "FloatY", function()
+    SetWindow(not Config.WindowVisible)
+end)
+
+--==================================================
+-- START
+--==================================================
+
+SelectTab(Config.LastTab)
+RefreshStats()
+RefreshHome()
+
+if Config.WindowVisible then
+    PlayOpen()
+end
+
+if not LoadedFromFile then
+    SaveConfig(true)
+end
+
+print("[RELWX] UI Loaded" .. (LoadedFromFile and " (Config loaded)" or " (new Config)"))
