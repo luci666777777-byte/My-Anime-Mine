@@ -41,7 +41,7 @@ local SOUND_FALLBACK = "rbxasset://sounds/electronicpingshort.wav"
 -- CONFIG  (Auto Save / Auto Load)
 --==================================================
 
-local CONFIG_FILE = "RELWX_HUB_Config.json"
+local CONFIG_FILE = "JOD_HUB_Config.json"
 
 local Defaults = {
     UIAccentColor = "#A78BFA",
