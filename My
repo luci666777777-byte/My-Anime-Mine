@@ -1,7 +1,7 @@
--- RELWX HUB UI  |  My Anime Mine
+-- JOD HUB UI  |  My Anime Mine
 
-if _G.RelwxMineCleanup then
-    pcall(_G.RelwxMineCleanup)
+if _G.JODMineCleanup then
+    pcall(_G.JODMineCleanup)
     task.wait(0.2)
 end
 
