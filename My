@@ -1634,7 +1634,7 @@ end
 local Brand = Text(Top, "", 15, FNT.B, "Text")
 Brand.RichText = true
 OnTheme(function()
-    Brand.Text = 'RELWX <font color="#' .. Theme.Accent:ToHex() .. '">HUB</font>'
+    Brand.Text = 'JOD <font color="#' .. Theme.Accent:ToHex() .. '">HUB</font>'
 end)
 Brand.Position = UDim2.fromOffset(60, 10)
 Brand.Size = UDim2.new(1, -270, 0, 22)
@@ -3080,7 +3080,7 @@ end)
 local Functions = MakePage("Functions", "ฟาร์มแร่ & คนขุด", "เปิด / ปิดการใช้งานได้ทันที  •  เซฟอัตโนมัติ")
 
 --==================================================
--- RELWX MINE  |  My Anime Mine — ฟังก์ชันทั้งหมด
+-- JOD MINE  |  My Anime Mine — ฟังก์ชันทั้งหมด
 --==================================================
 
 ;(function()
@@ -3125,7 +3125,7 @@ local Functions = MakePage("Functions", "ฟาร์มแร่ & คนขุ
         pcall(function()
             RunService:Set3dRenderingEnabled(true)
         end)
-        for _, n in ipairs({ "RELWX_UI", "RELWX_Floating", "RELWX_Stats" }) do
+        for _, n in ipairs({ "JOD_UI", "JOD_Floating", "JOD_Stats" }) do
             pcall(function()
                 local g = LocalPlayer.PlayerGui:FindFirstChild(n)
                 if g then
@@ -4495,7 +4495,7 @@ end)()
 -- SETTINGS
 --==================================================
 
-local Settings = MakePage("Settings", "ตั้งค่า", "ปรับแต่งหน้าตา RELWX  •  เปลี่ยนแล้วเซฟทันที")
+local Settings = MakePage("Settings", "ตั้งค่า", "ปรับแต่งหน้าตา JOD  •  เปลี่ยนแล้วเซฟทันที")
 
 Section(Settings, "ระบบ")
 
@@ -4920,10 +4920,10 @@ ColorRow(Settings, "สีหลัก UI", "UIAccentColor")
 ColorRow(Settings, "สีพื้นหลัง UI", "UIBackgroundColor")
 ColorRow(Settings, "สีปุ่ม UI", "UIButtonColor")
 
-Section(Settings, "ปุ่มลอย RX")
-ColorRow(Settings, "สีปุ่ม RX", "FloatingButtonColor")
-ColorRow(Settings, "สีขอบ RX", "FloatingBorderColor")
-ColorRow(Settings, "สี Glow RX", "FloatingGlowColor")
+Section(Settings, "ปุ่มลอย JOD")
+ColorRow(Settings, "สีปุ่ม JOD", "FloatingButtonColor")
+ColorRow(Settings, "สีขอบ JOD", "FloatingBorderColor")
+ColorRow(Settings, "สี Glow JOD", "FloatingGlowColor")
 
 Section(Settings, "Config")
 
@@ -5006,7 +5006,7 @@ Category("ระบบฟาร์ม", "FarmSys", "ring")
 Category("ตั้งค่า", "Settings", "ring")
 
 --==================================================
--- FLOATING RX BUTTON
+-- FLOATING JOD BUTTON
 --==================================================
 
 local ToggleGui = New("ScreenGui", {
